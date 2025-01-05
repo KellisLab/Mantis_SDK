@@ -1,7 +1,7 @@
-# SDK for Your Django API
+# SDK for Mantis API
 
 ## Overview
-This SDK provides a Python interface for interacting with your Django-based API. It simplifies the process of making requests to various endpoints, handling authentication, and parsing responses.
+This SDK provides a Python interface for interacting with Mantis API. It simplifies the process of making requests to various endpoints, handling authentication, and parsing responses.
 
 ## Features
 - Fetch user emails by ID.
@@ -18,7 +18,7 @@ This SDK provides a Python interface for interacting with your Django-based API.
 Install the SDK using pip:
 
 ```bash
-pip install your-sdk-name
+pip install Mantis_SDK
 ```
 
 ## Usage
@@ -26,10 +26,10 @@ pip install your-sdk-name
 ### Initialization
 
 ```python
-from your_sdk_name import YourAPIClient
+from Mantis_SDK import MantisClient
 
 # Initialize the client
-client = YourAPIClient(base_url="https://api.example.com", token="your-auth-token")
+client = MantisClient(base_url="https://api.example.com", token="your-auth-token")
 ```
 
 ### Available Methods
