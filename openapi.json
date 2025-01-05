@@ -1,0 +1,190 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Django API",
+    "version": "1.0.0",
+    "description": "OpenAPI specification for the Django API."
+  },
+  "servers": [
+    {
+      "url": "https://api.example.com",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/get_email_by_user_id": {
+      "get": {
+        "summary": "Fetch email by user ID",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the user."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Email fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "email": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "404": {
+            "description": "User not found."
+          }
+        }
+      }
+    },
+    "/rename_space/{space_id}": {
+      "patch": {
+        "summary": "Rename a space",
+        "parameters": [
+          {
+            "name": "space_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the space."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "new_name": {
+                    "type": "string"
+                  }
+                },
+                "required": ["new_name"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Space renamed successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "404": {
+            "description": "Space not found."
+          }
+        }
+      }
+    },
+    "/update_shared_users/{space_id}": {
+      "post": {
+        "summary": "Update shared users for a space",
+        "parameters": [
+          {
+            "name": "space_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the space."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["user_ids"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shared users updated successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          },
+          "404": {
+            "description": "Space not found."
+          }
+        }
+      }
+    },
+    "/create_space": {
+      "post": {
+        "summary": "Create a new space",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "space_name": {
+                    "type": "string"
+                  },
+                  "is_public": {
+                    "type": "boolean"
+                  },
+                  "data_types": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "semantic": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": ["space_name", "is_public"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Space created successfully."
+          },
+          "400": {
+            "description": "Bad request."
+          }
+        }
+      }
+    }
+  }
+}
