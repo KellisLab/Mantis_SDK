@@ -1,0 +1,12 @@
+LICENSE
+README.md
+setup.py
+Mantis_SDK.egg-info/PKG-INFO
+Mantis_SDK.egg-info/SOURCES.txt
+Mantis_SDK.egg-info/dependency_links.txt
+Mantis_SDK.egg-info/requires.txt
+Mantis_SDK.egg-info/top_level.txt
+mantis_sdk/__init__.py
+mantis_sdk/client.py
+mantis_sdk/exceptions.py
+mantis_sdk/utils.py
