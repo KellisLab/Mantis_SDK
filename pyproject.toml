@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mantis-sdk"
+version = "0.1.0"
+authors = [
+    { name = "Luca Voros", email = "lbvoros@gmail.com" },
+]
+description = "Python SDK for interacting with the Mantis visualization platform"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests>=2.32.3",
+    "pandas>=2.2.3",
+    "playwright>=1.49.1",
+    "appdirs>=1.4.4",
+    "google-auth>=2.38.0",
+    "google-auth-oauthlib>=1.2.1",
+    "matplotlib>=3.10.0",
+    "numpy>=2.2.2",
+    "pillow>=11.1.0",
+    "pyppeteer>=2.0.0",
+    "python-dateutil>=2.9.0",
+    "tqdm>=4.67.1",
+    "websockets>=10.4",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/KellisLab/Mantis_SDK"
+"Bug Tracker" = "https://github.com/KellisLab/Mantis_SDK/issues"
