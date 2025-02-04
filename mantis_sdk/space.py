@@ -1,8 +1,8 @@
 from playwright.async_api import async_playwright
 from typing import Dict, Optional
 import http.cookies
-from render_args import RenderArgs
-from config import defaultRenderArgs, HOST, DOMAIN, TIMEOUT
+from .render_args import RenderArgs
+from .config import defaultRenderArgs, HOST, DOMAIN, TIMEOUT
 import asyncio
 
 class Space:

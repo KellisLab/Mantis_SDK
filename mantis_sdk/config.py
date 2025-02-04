@@ -1,4 +1,4 @@
-from render_args import RenderArgs
+from .render_args import RenderArgs
 
 HOST = "http://localhost:3000"
 DOMAIN = "localhost"

@@ -1,9 +1,9 @@
 import uuid
-from space import Space
-from render_args import RenderArgs
+from .space import Space
+from .render_args import RenderArgs
 import requests
 from typing import Optional, Dict, Any, List
-from config import HOST
+from .config import HOST
 import pandas as pd
 import io
 import json
