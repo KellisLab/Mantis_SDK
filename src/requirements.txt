@@ -42,7 +42,7 @@ pyasn1_modules==0.4.1
 pyee==11.1.1
 Pygments==2.19.1
 pyparsing==3.2.1
-pyppeteer==2.0.0
+pyppeteer
 python-dateutil==2.9.0.post0
 pytz==2025.1
 pyzmq==26.2.1
