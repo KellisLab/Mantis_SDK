@@ -134,6 +134,7 @@ class MantisClient:
             
             buffer = io.BytesIO ()
             data.to_csv(buffer, index=False)
+            buffer.seek(0)
         elif isinstance(data, str):
             columns = pd.read_csv(data, nrows=1).columns
             
