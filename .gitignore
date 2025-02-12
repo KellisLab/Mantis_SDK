@@ -177,4 +177,4 @@ cython_debug/
 .pypirc
 
 ./mantis_sdk/main.py
-.mantis_sdk/main.py
+mantis_sdk/main.py
