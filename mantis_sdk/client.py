@@ -2,12 +2,14 @@ import uuid
 from .space import Space
 from .render_args import RenderArgs
 import requests
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 from .config import HOST
 import pandas as pd
 import io
 import json
+import time
 import asyncio
+import random
 from playwright.async_api import async_playwright
 
 class SpacePrivacy:
@@ -28,10 +30,17 @@ class DataType:
     
     All = [Title, Semantic, Numeric, Categoric, Date, Links, CustomModel, Connection, Delete]
     
+class AIProvider:
+    OpenAI = "openai"
+    HuggingFace = "huggingface"
+    
 class ReducerModels:
     UMAP = "UMAP"
     PCA = "PCA+UMAP"
     TSNE = "t-SNE"
+    
+class SpaceCreationError (Exception):
+    pass
 
 class MantisClient:
     """
@@ -55,7 +64,7 @@ class MantisClient:
     def _authenticate (self):
         raise NotImplementedError ("Authentication is not implemented yet.")
 
-    def _request(self, method: str, endpoint: str, **kwargs) -> Any:
+    def _request(self, method: str, endpoint: str, rm_slash: bool = False, **kwargs) -> Any:
         """
         Internal method to make an HTTP request.
 
@@ -67,9 +76,21 @@ class MantisClient:
             return s.lstrip('/').rstrip('/')
         
         url = f"{HOST}/{remove_slash(self.base_url)}/{remove_slash(endpoint)}/"
+        
+        # This is one of the weirdest cases I have required
+        # some endpoints don't authenticate if there is a slash at the end
+        # while some require it.
+        if rm_slash:
+            url = url.rstrip("/")
+        
+        headers = {"cookie": self.cookie}
+        
+        if "headers" in kwargs:
+            headers.update (kwargs["headers"])
+            del kwargs["headers"]
 
         try:
-            response = requests.request(method, url, headers={"cookie": self.cookie}, **kwargs)
+            response = requests.request(method, url, headers=headers, **kwargs)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -94,12 +115,17 @@ class MantisClient:
             
         return space_ids
     
+    def _default_parameter_selection (self, parameters: dict[str, dict[str, float]]) -> str:
+        return random.choice (list(parameters.keys()))
+    
     def create_space (self, space_name: str, 
                       data: pd.DataFrame | str,
                       data_types: dict[str, DataType], 
                       custom_models: Optional[list[str | None]] = None, 
                       reducer: ReducerModels = ReducerModels.UMAP,
-                      privacy_level: SpacePrivacy = SpacePrivacy.PRIVATE) -> Space:
+                      privacy_level: SpacePrivacy = SpacePrivacy.PRIVATE,
+                      ai_provider: AIProvider = AIProvider.OpenAI,
+                      choose_variation: Callable[[dict[str, dict[str, float]]], str] = None) -> Space:
         """Creates a new space in Mantis with the provided data.
         This method creates a new space using either a pandas DataFrame or a file path as input data,
         along with specified data types and optional custom models.
@@ -111,6 +137,7 @@ class MantisClient:
                 Must match length of data_types if provided. Defaults to None.
             reducer (ReducerModels, optional): Dimension reduction model to use. Defaults to ReducerModels.UMAP.
             privacy_level (SpacePrivacy, optional): Privacy setting for the space. Defaults to SpacePrivacy.PRIVATE.
+            ai_provider (AIProvider, optional): AI provider to use for the space. Defaults to AIProvider.OpenAI.
         Returns:
             Space: Dictionary containing:
                 - space_id (str): Unique identifier for the created space
@@ -129,12 +156,18 @@ class MantisClient:
         buffer = None
         columns = None
         
+        # if the data is a dataframe
+        # write it as a CSV into a bytes buffer
+        # and reset the buffer so it can be read
         if isinstance(data, pd.DataFrame):
             columns = data.columns
             
             buffer = io.BytesIO ()
             data.to_csv(buffer, index=False)
             buffer.seek(0)
+            
+        # if it is a file path
+        # read the columns, and open as rb buffer
         elif isinstance(data, str):
             columns = pd.read_csv(data, nrows=1).columns
             
@@ -183,6 +216,7 @@ class MantisClient:
             "red_model": reducer,
             "custom_models": json.dumps(custom_models),
             "data_types": json.dumps(data_types_sanitized),
+            "ai_provider": ai_provider,
             "file_key": file_key,
         }
 
@@ -192,14 +226,53 @@ class MantisClient:
         }
 
         # Send the request with both form data and file
-        response = self._request(
-            "POST",
-            "/upload/createSpace",
-            data=form_data,
-            files=files
-        )
+        self._request("POST",
+                      "/synthesis/landscape",
+                      data=form_data,
+                      files=files)
+                
+        choseUMAPvariations = False # Whether we have chosen the variables yet
         
-        return response
+        # Progress callback
+        while True:
+            # Get current progress, throw if error
+            progress = self._request ("GET", f"synthesis/progress/{space_id}")
+            
+            if progress["error"]:
+                raise SpaceCreationError (progress["error"])
+                        
+            # Detects whether we need to select some params
+            if progress["progress"] >= 50 and not choseUMAPvariations:
+                umap_variations = self._request ("GET", f"synthesis/parameters/{space_id}") # Get options
+                parameters = umap_variations["umap_variations"]["parameters"]
+                
+                # Choose parameter based on default or custom function
+                chosen_parameter = None
+                if choose_variation is None:
+                    chosen_parameter = self._default_parameter_selection (parameters)
+                else:
+                    chosen_parameter = choose_variation (parameters)
+                
+                # Select params
+                self._request ("POST", 
+                               f"synthesis/landscape/{space_id}/select-umap/{chosen_parameter}",
+                               rm_slash=True,
+                               json={"selected_variation": chosen_parameter})
+                
+                choseUMAPvariations = True
+                
+            # Break once finished
+            if progress["progress"] == 100:
+                break
+            
+            # TODO: Delete this ASAP, this is just a fix for a bug in the synthesis Pipeline
+            # TODO: this will be able to be deleted with no other changes
+            if progress["progress"] == 0 and choseUMAPvariations:
+                break
+            
+            time.sleep (1)
+            
+        return {"space_id": space_id}
 
     async def open_space(self, space_id: str) -> "Space":
         """

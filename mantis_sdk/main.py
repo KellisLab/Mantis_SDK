@@ -1,9 +1,9 @@
 from . import config
 
-config.HOST = "https://mantisdev.csail.mit.edu/"
+config.HOST = "https://mantisdev.csail.mit.edu"
 config.DOMAIN = "mantisdev.csail.mit.edu"
 
-from .client import MantisClient, SpacePrivacy, DataType, ReducerModels
+from .client import MantisClient, SpacePrivacy, DataType, ReducerModels, AIProvider
 
 import time
 import pandas as pd
@@ -13,21 +13,18 @@ cookie = "MIT_PressMachineID=638695455057712972; fpestid=y_jCLhNDgF9Sl8XTsHV4RVk
 
 mantis = MantisClient("/api/proxy/", cookie)
 
-df = pd.read_csv ("./test.csv")
-
-print (df)
-
 # Create space with provided parameters 
 space_response = mantis.create_space(
-    space_name="test-manual-df",
-    data=df,
+    space_name="Selecting UMAP Variations Pt 5",
+    data="/home/lvoros/Mantis/SDK/StockDataSmall.csv",
     data_types={
         "Name": DataType.Title,
         "Market Cap": DataType.Numeric,
         "Description": DataType.Semantic,    
     },
     reducer=ReducerModels.UMAP,
-    privacy_level=SpacePrivacy.PRIVATE
+    privacy_level=SpacePrivacy.PRIVATE,
+    ai_provider=AIProvider.OpenAI
 )
 
 print (space_response)
