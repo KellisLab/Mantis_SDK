@@ -178,3 +178,5 @@ cython_debug/
 
 ./mantis_sdk/main.py
 mantis_sdk/main.py
+test.csv
+./test.csv
