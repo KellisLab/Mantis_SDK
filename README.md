@@ -96,6 +96,13 @@ ReducerModels.PCA # PCA + UMAP
 ReducerModels.TSNE # t-SNE 
 ```
 
+## AI Providers
+
+```python 
+AIProvider.OpenAI
+AIProvider.HuggingFace
+```
+
 ## Examples
 
 ### Create Space from CSV
@@ -123,10 +130,10 @@ new_space_id = mantis.create_space("Stock data,",
 
 ```python 
 # Select 100 points
-await spae.select_points (100)
+await space.select_points (100)
 
 # Plot embed dimensions
-plot = await spae.render_plot ("embed_x", "embed_y")
+plot = await space.render_plot ("embed_x", "embed_y")
 ```
 
 ### Run Analysis

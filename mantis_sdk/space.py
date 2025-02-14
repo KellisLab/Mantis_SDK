@@ -75,9 +75,9 @@ class Space:
                     "name": morsel.key,
                     "value": morsel.value,
                     "domain": DOMAIN,
-                    "path": morsel["path"] or "/",
-                    "httpOnly": bool(morsel["httponly"]),
-                    "secure": bool(morsel["secure"]),
+                    "path": "/",
+                    "httpOnly": False,
+                    "secure": True,
                 })
                 
             await context.add_cookies (cookies)
