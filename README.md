@@ -18,6 +18,14 @@ python -m pip install -r ./src/requirements.txt
 python -m playwright install chromium
 ```
 
+**Note:** If the Playwright installation fails, try running:
+
+```bash
+python -m playwright install-deps
+```
+
+before proceeding.
+
 ## Authentication
 
 The `MantisClient` object requires the parameter `cookie` to be passed in. This can be obtained by logging into the Mantis webpage in your browser, opening devtools, and finding the session cookies that are passed to the requests. The following keys in cookies are required: `session-id`, `next-auth.callback-url`, `next-auth.csrf-token`, `next-auth.session-token`. Use the cookie string as the `cookie` param.
