@@ -11,6 +11,9 @@ import time
 import asyncio
 import random
 from playwright.async_api import async_playwright
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SpacePrivacy:
     PUBLIC = "public"
@@ -237,6 +240,7 @@ class MantisClient:
         while True:
             # Get current progress, throw if error
             progress = self._request ("GET", f"synthesis/progress/{space_id}")
+            logger.debug (progress)
             
             if progress["error"]:
                 raise SpaceCreationError (progress["error"])
