@@ -32,6 +32,8 @@ The `MantisClient` object requires the parameter `cookie` to be passed in. This 
 
 ## Quick Start
 
+***Note***: If you are using a local backend, you must run it with docker, or the space creation will NOT work. To do so, `cd docker` from the backend root, then `docker compose up -d --build`. After you run the build once, you can re-run it simply with `docker-compose up`. If things dno't work, check the logs and make sure they are not empty.
+
 ```python
 from client import MantisClient, SpacePrivacy, DataType, ReducerModels 
 from render_args import RenderArgs 
