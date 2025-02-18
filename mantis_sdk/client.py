@@ -125,7 +125,7 @@ class MantisClient:
         return space_ids
     
     def _default_parameter_selection (self, parameters: dict[str, dict[str, float]]) -> str:
-        return random.choice (list(parameters.keys()))
+        return list(parameters.keys())[len(parameters) // 2]
     
     def create_space (self, space_name: str, 
                       data: pd.DataFrame | str,
@@ -263,7 +263,7 @@ class MantisClient:
                         parameters = umap_variations["umap_variations"]["parameters"]
                         break
 
-                    if time.time() - start_time > 60:
+                    if time.time() - start_time > 3600:
                         raise TimeoutError("Timeout waiting for UMAP parameters")
                     
                     time.sleep(1)
