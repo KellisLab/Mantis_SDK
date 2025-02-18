@@ -253,10 +253,20 @@ class MantisClient:
                         
             # Detects whether we need to select some params
             if progress["progress"] >= 50 and not choseUMAPvariations:
-                time.sleep (5) # Give some time for the remote DB to update
-                
-                umap_variations = self._request ("GET", f"synthesis/parameters/{space_id}") # Get options
-                parameters = umap_variations["umap_variations"]["parameters"]
+                start_time = time.time()
+                parameters = None
+
+                while True:
+                    umap_variations = self._request("GET", f"synthesis/parameters/{space_id}")
+
+                    if "umap_variations" in umap_variations and "parameters" in umap_variations["umap_variations"]:
+                        parameters = umap_variations["umap_variations"]["parameters"]
+                        break
+
+                    if time.time() - start_time > 60:
+                        raise TimeoutError("Timeout waiting for UMAP parameters")
+                    
+                    time.sleep(1)
                 
                 # Choose parameter based on default or custom function
                 chosen_parameter = None
