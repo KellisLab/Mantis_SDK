@@ -90,6 +90,9 @@ class MantisClient:
         
         if method.upper() == "GET":
             headers["Cache-Control"] = "no-cache"  # Prevent caching for GET requests
+            params = kwargs.get("params", {})
+            params["_ts"] = str(time.time())       # Force fresh GET
+            kwargs["params"] = params
 
         if "headers" in kwargs:
             headers.update (kwargs["headers"])
