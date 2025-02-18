@@ -88,6 +88,9 @@ class MantisClient:
         
         headers = {"cookie": self.cookie}
         
+        if method.upper() == "GET":
+            headers["Cache-Control"] = "no-cache"  # Prevent caching for GET requests
+
         if "headers" in kwargs:
             headers.update (kwargs["headers"])
             del kwargs["headers"]
