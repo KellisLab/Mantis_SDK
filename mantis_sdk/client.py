@@ -134,7 +134,8 @@ class MantisClient:
                       reducer: ReducerModels = ReducerModels.UMAP,
                       privacy_level: SpacePrivacy = SpacePrivacy.PRIVATE,
                       ai_provider: AIProvider = AIProvider.OpenAI,
-                      choose_variation: Callable[[dict[str, dict[str, float]]], str] = None) -> Space:
+                      choose_variation: Callable[[dict[str, dict[str, float]]], str] = None,
+                      on_recieve_id: Callable[[str], None] = None) -> Space:
         """Creates a new space in Mantis with the provided data.
         This method creates a new space using either a pandas DataFrame or a file path as input data,
         along with specified data types and optional custom models.
@@ -147,6 +148,7 @@ class MantisClient:
             reducer (ReducerModels, optional): Dimension reduction model to use. Defaults to ReducerModels.UMAP.
             privacy_level (SpacePrivacy, optional): Privacy setting for the space. Defaults to SpacePrivacy.PRIVATE.
             ai_provider (AIProvider, optional): AI provider to use for the space. Defaults to AIProvider.OpenAI.
+            on_recieve_id (Callable[[str], None], optional): Callback function to call when the space ID is received. Defaults to None.
         Returns:
             Space: Dictionary containing:
                 - space_id (str): Unique identifier for the created space
@@ -216,6 +218,9 @@ class MantisClient:
         # Generate a unique ID for the space
         space_id = str(uuid.uuid4())
         file_key = f"{space_name}-{space_id}.{file_extension}"
+
+        if on_recieve_id is not None:
+            on_recieve_id (space_id)
         
         # Create the form data
         form_data = {
