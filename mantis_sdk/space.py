@@ -2,15 +2,15 @@ from playwright.async_api import async_playwright
 from typing import Dict, Optional
 import http.cookies
 from .render_args import RenderArgs
-from .config import defaultRenderArgs, HOST, DOMAIN, TIMEOUT
+from .config import ConfigurationManager
 import asyncio
 
 class Space:
-    def __init__(self, space_id: str, _request, cookie: str, render_args: Optional[RenderArgs] = None):
+    def __init__(self, space_id: str, _request, cookie: str, config: Optional[ConfigurationManager] = None):
         # Space args
         self.space_id = space_id
         self.cookie = cookie
-        self.render_args = render_args
+        self.config = config
         self._request = _request
         self.headless = self._get_render_arg ("headless")
         
@@ -20,9 +20,12 @@ class Space:
         self.page = None
 
     @classmethod
-    async def create(cls, space_id: str, _request, cookie: str, render_args: Optional[RenderArgs] = None):
+    async def create(cls, space_id: str, _request, cookie: str, config: Optional[ConfigurationManager] = None):
         """Factory method to create and initialize a Space instance"""
-        instance = cls(space_id, _request, cookie, render_args)
+        if config is None:
+            config = ConfigurationManager()
+
+        instance = cls(space_id, _request, cookie, config)
         instance.playwright = await async_playwright().start()
         instance.browser = await instance.playwright.chromium.launch(headless=instance.headless, args=["--start-maximized"])
         await instance._init_space()
@@ -39,11 +42,7 @@ class Space:
             The value associated with the key from render_args or defaultRenderArgs.
             Returns None if the key is not found in either source.
         """
-        if self.render_args is None:
-            return defaultRenderArgs.args.get (key)
-        
-        return self.render_args.args.get (key,
-                                          defaultRenderArgs.args.get (key))
+        return self.config.render_args.args.get (key)
         
     async def _init_space(self):
         """
@@ -74,7 +73,7 @@ class Space:
                 cookies.append ({
                     "name": morsel.key,
                     "value": morsel.value,
-                    "domain": DOMAIN,
+                    "domain": self.config.domain,
                     "path": "/",
                     "httpOnly": False,
                     "secure": True,
@@ -89,14 +88,14 @@ class Space:
                 await self.page.set_viewport_size ({"width": self._get_render_arg("viewport")["width"], 
                                                     "height": self._get_render_arg("viewport")["height"]})
             
-            await self.page.goto (f"{HOST}/space/{self.space_id}/",
-                            timeout=TIMEOUT)
+            await self.page.goto (f"{self.config.host}/space/{self.space_id}/",
+                            timeout=self.config.timeout)
             
             await self._apply_init_render_args ()
             
             # Wait until the exposed loading value is true
             await self.page.wait_for_function ("""() => window.isLoaded === true""",
-                                         timeout=TIMEOUT)
+                                         timeout=self.config.timeout)
             
             # Let points render after data is loaded
             await asyncio.sleep (5)

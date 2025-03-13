@@ -1,15 +1,12 @@
 import uuid
 from .space import Space
-from .render_args import RenderArgs
 import requests
 from typing import Optional, Dict, Any, List, Callable
-from .config import HOST
+from .config import ConfigurationManager
 import pandas as pd
 import io
 import json
 import time
-import asyncio
-import random
 from playwright.async_api import async_playwright
 import logging
 
@@ -50,7 +47,7 @@ class MantisClient:
     SDK for interacting with your Django API.
     """
 
-    def __init__(self, base_url: str, cookie: str, render_args: Optional[RenderArgs] = None):
+    def __init__(self, base_url: str, cookie: str, config: Optional[ConfigurationManager] = None):
         """
         Initialize the client.
 
@@ -58,7 +55,11 @@ class MantisClient:
         :param token: Optional authentication token.
         """
         self.base_url = base_url.rstrip("/")
-        self.render_args = render_args
+
+        if config is None:
+            self.config = ConfigurationManager()
+
+        self.config = config
         self.cookie = cookie
         
         if self.cookie is None:
@@ -78,7 +79,7 @@ class MantisClient:
         def remove_slash (s: str):
             return s.lstrip('/').rstrip('/')
         
-        url = f"{HOST}/{remove_slash(self.base_url)}/{remove_slash(endpoint)}/"
+        url = f"{self.config.host}/{remove_slash(self.base_url)}/{remove_slash(endpoint)}/"
         
         # This is one of the weirdest cases I have required
         # some endpoints don't authenticate if there is a slash at the end
@@ -309,7 +310,7 @@ class MantisClient:
             space_id, 
             _request=self._request, 
             cookie=self.cookie, 
-            render_args=self.render_args
+            config=self.config
         )
 
     async def __aenter__(self):
