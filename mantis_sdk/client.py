@@ -58,8 +58,9 @@ class MantisClient:
 
         if config is None:
             self.config = ConfigurationManager()
-
-        self.config = config
+        else:
+            self.config = config
+            
         self.cookie = cookie
         
         if self.cookie is None:
