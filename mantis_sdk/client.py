@@ -150,7 +150,7 @@ class MantisClient:
             reducer (ReducerModels, optional): Dimension reduction model to use. Defaults to ReducerModels.UMAP.
             privacy_level (SpacePrivacy, optional): Privacy setting for the space. Defaults to SpacePrivacy.PRIVATE.
             ai_provider (AIProvider, optional): AI provider to use for the space. Defaults to AIProvider.OpenAI.
-            on_recieve_id (Callable[[str], None], optional): Callback function to call when the space ID is received. Defaults to None.
+            on_recieve_id (Callable[[str, str], None], optional): Callback function to call when the space ID and layer ID is received. Defaults to None.
         Returns:
             Space: Dictionary containing:
                 - space_id (str): Unique identifier for the created space
@@ -220,9 +220,6 @@ class MantisClient:
         # Generate a unique ID for the space
         space_id = str(uuid.uuid4())
         file_key = f"{space_name}-{space_id}.{file_extension}"
-
-        if on_recieve_id is not None:
-            on_recieve_id (space_id)
         
         # Create the form data
         form_data = {
@@ -242,17 +239,22 @@ class MantisClient:
         }
 
         # Send the request with both form data and file
-        self._request("POST",
-                      "/synthesis/landscape",
-                      data=form_data,
-                      files=files)
+        landscape_response = self._request("POST",
+                                           "/synthesis/landscape",
+                                           data=form_data,
+                                           files=files)
+        
+        layer_id = landscape_response["layer_id"]
+        
+        if on_recieve_id is not None:
+            on_recieve_id (space_id, layer_id)
                 
         choseUMAPvariations = False # Whether we have chosen the variables yet
         
         # Progress callback
         while True:
             # Get current progress, throw if error
-            progress = self._request ("GET", f"synthesis/progress/{space_id}")
+            progress = self._request ("GET", f"synthesis/progress/{layer_id}")
             logger.debug (progress)
             
             if progress["error"]:
@@ -264,7 +266,7 @@ class MantisClient:
                 parameters = None
 
                 while True:
-                    umap_variations = self._request("GET", f"synthesis/parameters/{space_id}")
+                    umap_variations = self._request("GET", f"synthesis/parameters/{layer_id}")
 
                     if "umap_variations" in umap_variations and "parameters" in umap_variations["umap_variations"]:
                         parameters = umap_variations["umap_variations"]["parameters"]
