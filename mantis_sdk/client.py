@@ -288,7 +288,9 @@ class MantisClient:
                 self._request ("POST", 
                                f"synthesis/landscape/{space_id}/select-umap/{chosen_parameter}",
                                rm_slash=True,
-                               json={"selected_variation": chosen_parameter})
+                               json={"selected_variation": chosen_parameter, 
+                                     "layer_id": layer_id,
+                                     "floor_number": 1})
                 
                 choseUMAPvariations = True
                 
