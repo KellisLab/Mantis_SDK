@@ -262,37 +262,30 @@ class MantisClient:
                         
             # Detects whether we need to select some params
             if progress["progress"] >= 50 and not choseUMAPvariations:
-                start_time = time.time()
                 parameters = None
 
-                while True:
-                    umap_variations = self._request("GET", f"synthesis/parameters/{layer_id}")
+                umap_variations = self._request("GET", f"synthesis/parameters/{layer_id}")
 
-                    if "umap_variations" in umap_variations and "parameters" in umap_variations["umap_variations"]:
-                        parameters = umap_variations["umap_variations"]["parameters"]
-                        break
-
-                    if time.time() - start_time > 3600:
-                        raise TimeoutError("Timeout waiting for UMAP parameters")
+                # If the choice exists, make it
+                if "umap_variations" in umap_variations and "parameters" in umap_variations["umap_variations"]:
+                    parameters = umap_variations["umap_variations"]["parameters"]
+                
+                    # Choose parameter based on default or custom function
+                    chosen_parameter = None
+                    if choose_variation is None:
+                        chosen_parameter = self._default_parameter_selection (parameters)
+                    else:
+                        chosen_parameter = choose_variation (parameters)
                     
-                    time.sleep(1)
-                
-                # Choose parameter based on default or custom function
-                chosen_parameter = None
-                if choose_variation is None:
-                    chosen_parameter = self._default_parameter_selection (parameters)
-                else:
-                    chosen_parameter = choose_variation (parameters)
-                
-                # Select params
-                self._request ("POST", 
-                               f"synthesis/landscape/{space_id}/select-umap/{chosen_parameter}",
-                               rm_slash=True,
-                               json={"selected_variation": chosen_parameter, 
-                                     "layer_id": layer_id,
-                                     "floor_number": 1})
-                
-                choseUMAPvariations = True
+                    # Select params
+                    self._request ("POST", 
+                                f"synthesis/landscape/{space_id}/select-umap/{chosen_parameter}",
+                                rm_slash=True,
+                                json={"selected_variation": chosen_parameter, 
+                                        "layer_id": layer_id,
+                                        "floor_number": 1})
+                    
+                    choseUMAPvariations = True
                 
             # Break once finished
             if progress["progress"] == 100:
