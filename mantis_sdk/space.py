@@ -92,9 +92,11 @@ class Space:
                             timeout=self.config.timeout)
             
             await self._apply_init_render_args ()
+
+            wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"
             
             # Wait until the exposed loading value is true
-            await self.page.wait_for_function ("""() => window.isLoaded === true""",
+            await self.page.wait_for_function (f"""() => window.{wait_for} === true""",
                                          timeout=self.config.timeout)
             
             # Let points render after data is loaded
