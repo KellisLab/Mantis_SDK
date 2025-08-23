@@ -201,6 +201,15 @@ class Space:
         """
         return await self._execute_sdk ("execCode", [code])
     
+    async def get_mcp_session(self):
+        """
+        Retrieves the MCP session ID from the browser's window object.
+
+        Returns:
+            str: The MCP session ID from window.__MCP_SESSION_ID, or None if not available.
+        """
+        return await self.page.evaluate("() => window.__MCP_SESSION_ID")
+
     async def close(self):
         """
         Closes the browser instance and stops the Playwright session.
