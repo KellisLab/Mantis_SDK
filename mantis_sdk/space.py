@@ -20,14 +20,19 @@ class Space:
         self.page = None
 
     @classmethod
-    async def create(cls, space_id: str, _request, cookie: str, config: Optional[ConfigurationManager] = None):
+    async def create(cls, space_id: str, _request, cookie: str, config: Optional[ConfigurationManager] = None, colab: bool = False):
         """Factory method to create and initialize a Space instance"""
         if config is None:
             config = ConfigurationManager()
 
         instance = cls(space_id, _request, cookie, config)
         instance.playwright = await async_playwright().start()
-        instance.browser = await instance.playwright.chromium.launch(headless=instance.headless, args=["--start-maximized"])
+        
+        browser_args = ["--start-maximized"]
+        if colab:
+            browser_args.extend(["--no-sandbox", "--disable-setuid-sandbox"])
+        
+        instance.browser = await instance.playwright.chromium.launch(headless=instance.headless, args=browser_args)
         await instance._init_space()
         return instance
 
