@@ -300,7 +300,7 @@ class MantisClient:
             
         return {"space_id": space_id}
 
-    async def open_space(self, space_id: str) -> "Space":
+    async def open_space(self, space_id: str, colab: bool = False) -> "Space":
         """
         Asynchronously open a space by ID.
         """
@@ -308,7 +308,8 @@ class MantisClient:
             space_id, 
             _request=self._request, 
             cookie=self.cookie, 
-            config=self.config
+            config=self.config,
+            colab=colab,
         )
 
     async def __aenter__(self):
