@@ -102,14 +102,13 @@ class Space:
                             timeout=self.config.timeout)
             
             await self._apply_init_render_args ()
-            await asyncio.sleep (5)
             print ("Second screenshot\n", (await self._screenshot()))
 
             wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"
 
             print ("Waiting for", wait_for)
         
-            wait_for_script = f"""() => window.{wait_for} === true"""
+            wait_for_script = f"""() => window.{wait_for}"""
 
             print (wait_for_script)
 
@@ -118,7 +117,7 @@ class Space:
                 await self.page.wait_for_function (wait_for_script,
                                          timeout=self.config.timeout)
             else:
-                while not (await self.page.evaluate(wait_for_script, [])):
+                while not (await self.page.evaluate(wait_for_script, [], timeout=self.config.timeout)):
                     print ("Sleeping once more")
                     await asyncio.sleep (1)
 
