@@ -104,10 +104,7 @@ class Space:
             await self._apply_init_render_args ()
             print ("Second screenshot\n", (await self._screenshot()))
 
-            wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"
-
-            print ("Waiting for", wait_for)
-        
+            wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"        
             wait_for_script = f"""() => window.{wait_for}"""
 
             print (wait_for_script)
