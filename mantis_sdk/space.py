@@ -119,7 +119,7 @@ class Space:
             else:
                 while not (await self.page.evaluate(wait_for_script, [])):
                     print ("Sleeping once more")
-                    await asyncio.sleep (1)
+                    await asyncio.sleep (10)
 
             print ("Okay, yay.")
             
