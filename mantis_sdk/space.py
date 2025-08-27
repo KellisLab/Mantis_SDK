@@ -34,18 +34,6 @@ class Space:
             browser_args.extend([
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",   # <= critical on Colab
-                "--single-process",          # collapse processes (fewer context switches)
-                "--no-zygote",
-                "--disable-gpu",
-                "--disable-features=site-per-process",
-                "--disable-background-networking",
-                "--disable-background-timer-throttling",
-                "--disable-renderer-backgrounding",
-                "--mute-audio",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--hide-scrollbars",
             ])
         
         instance.browser = await instance.playwright.chromium.launch(headless=instance.headless, args=browser_args)
