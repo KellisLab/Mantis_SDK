@@ -128,7 +128,7 @@ class Space:
             #        await asyncio.sleep (10)
             
             # Let points render after data is loaded
-            await asyncio.sleep (87.5)
+            await asyncio.sleep (60)
             
     async def _apply_init_render_args(self):
         pass
