@@ -6,13 +6,14 @@ from .config import ConfigurationManager
 import asyncio
 
 class Space:
-    def __init__(self, space_id: str, _request, cookie: str, config: Optional[ConfigurationManager] = None):
+    def __init__(self, space_id: str, _request, cookie: str, config: Optional[ConfigurationManager] = None, colab: bool = False):
         # Space args
         self.space_id = space_id
         self.cookie = cookie
         self.config = config
         self._request = _request
         self.headless = self._get_render_arg ("headless")
+        self.colab = colab
         
         # These will be initialized in create()
         self.playwright = None
@@ -25,7 +26,7 @@ class Space:
         if config is None:
             config = ConfigurationManager()
 
-        instance = cls(space_id, _request, cookie, config)
+        instance = cls(space_id, _request, cookie, config, colab)
         instance.playwright = await async_playwright().start()
         
         browser_args = ["--start-maximized"]
@@ -105,16 +106,21 @@ class Space:
             print ("Second screenshot\n", (await self._screenshot()))
 
             wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"
-    
-            print ("Waiting for", wait_for)
 
+            print ("Waiting for", wait_for)
+        
             wait_for_script = f"""() => window.{wait_for} === true"""
 
             print (wait_for_script)
-            
-            # Wait until the exposed loading value is true
-            await self.page.wait_for_function (wait_for_script,
+
+            if not self.colab:            
+                # Wait until the exposed loading value is true
+                await self.page.wait_for_function (wait_for_script,
                                          timeout=self.config.timeout)
+            else:
+                while not (await self.page.evaluate(wait_for_script, [])):
+                    print ("Sleeping once more")
+                    await asyncio.sleep (1)
 
             print ("Okay, yay.")
             
