@@ -117,7 +117,7 @@ class Space:
                 await self.page.wait_for_function (wait_for_script,
                                          timeout=self.config.timeout)
             else:
-                while not (await self.page.evaluate(wait_for_script, [], timeout=self.config.timeout)):
+                while not (await self.page.evaluate(wait_for_script, [])):
                     print ("Sleeping once more")
                     await asyncio.sleep (1)
 
