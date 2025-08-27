@@ -109,14 +109,16 @@ class Space:
 
             print (wait_for_script)
 
-            if not self.colab:            
-                # Wait until the exposed loading value is true
-                await self.page.wait_for_function (wait_for_script,
-                                         timeout=self.config.timeout)
-            else:
-                while not (await self.page.evaluate(wait_for_script, [])):
-                    print ("Sleeping once more")
-                    await asyncio.sleep (10)
+            await self.page.wait_for_function (wait_for_script, timeout=self.config.timeout, polling="raf")
+
+            #if not self.colab:            
+            #    # Wait until the exposed loading value is true
+            #    await self.page.wait_for_function (wait_for_script,
+            #                             timeout=self.config.timeout)
+            #else:
+            #    while not (await self.page.evaluate(wait_for_script, [])):
+            #        print ("Sleeping once more")
+            #        await asyncio.sleep (10)
 
             print ("Okay, yay.")
             
