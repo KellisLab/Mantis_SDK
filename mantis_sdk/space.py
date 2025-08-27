@@ -101,7 +101,7 @@ class Space:
                             timeout=self.config.timeout)
             
             await self._apply_init_render_args ()
-
+            await asyncio.sleep (5)
             print ("Second screenshot\n", (await self._screenshot()))
 
             wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"
