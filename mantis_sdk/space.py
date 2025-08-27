@@ -85,9 +85,13 @@ class Space:
                 })
                 
             await context.add_cookies (cookies)
+
+            print ("Added cookies\n", cookies)
             
             # Goto page
             self.page = await context.new_page()
+
+            print ("First screenshot\n", self._screenshot())
             
             if self.headless:
                 await self.page.set_viewport_size ({"width": self._get_render_arg("viewport")["width"], 
@@ -98,14 +102,24 @@ class Space:
             
             await self._apply_init_render_args ()
 
+            print ("Second screenshot\n", self._screenshot())
+
             wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"
+    
+            print ("Waiting for", wait_for)
+
+            wait_for_script = f"""() => window.{wait_for} === true"""
+
+            print (wait_for_script)
             
             # Wait until the exposed loading value is true
-            await self.page.wait_for_function (f"""() => window.{wait_for} === true""",
+            await self.page.wait_for_function (wait_for_script,
                                          timeout=self.config.timeout)
+
+            print ("Okay, yay.")
             
             # Let points render after data is loaded
-            await asyncio.sleep (5)
+            await asyncio.sleep (1)
             
     async def _apply_init_render_args(self):
         pass
