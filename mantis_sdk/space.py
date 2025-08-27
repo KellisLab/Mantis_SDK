@@ -91,7 +91,7 @@ class Space:
             # Goto page
             self.page = await context.new_page()
 
-            print ("First screenshot\n", self._screenshot())
+            print ("First screenshot\n", (await self._screenshot()))
             
             if self.headless:
                 await self.page.set_viewport_size ({"width": self._get_render_arg("viewport")["width"], 
@@ -102,7 +102,7 @@ class Space:
             
             await self._apply_init_render_args ()
 
-            print ("Second screenshot\n", self._screenshot())
+            print ("Second screenshot\n", (await self._screenshot()))
 
             wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"
     
