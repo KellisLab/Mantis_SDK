@@ -94,8 +94,6 @@ class Space:
             
             # Goto page
             self.page = await context.new_page()
-
-            print ("First screenshot\n", (await self._screenshot()))
             
             if self.headless:
                 await self.page.set_viewport_size ({"width": self._get_render_arg("viewport")["width"], 
@@ -105,14 +103,13 @@ class Space:
                             timeout=self.config.timeout)
             
             await self._apply_init_render_args ()
-            print ("Second screenshot\n", (await self._screenshot()))
 
-            wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"        
-            wait_for_script = f"""() => window.{wait_for}"""
+            #wait_for = self.config.wait_for if hasattr(self.config, 'wait_for') else "isLoaded"        
+            #wait_for_script = f"""() => window.{wait_for}"""
 
-            print (wait_for_script)
+            #print (wait_for_script)
 
-            await self.page.wait_for_function (wait_for_script, timeout=self.config.timeout, polling="raf")
+            #await self.page.wait_for_function (wait_for_script, timeout=self.config.timeout, polling="raf")
 
             #if not self.colab:            
             #    # Wait until the exposed loading value is true
@@ -122,11 +119,9 @@ class Space:
             #    while not (await self.page.evaluate(wait_for_script, [])):
             #        print ("Sleeping once more")
             #        await asyncio.sleep (10)
-
-            print ("Okay, yay.")
             
             # Let points render after data is loaded
-            await asyncio.sleep (1)
+            await asyncio.sleep (87.5)
             
     async def _apply_init_render_args(self):
         pass
