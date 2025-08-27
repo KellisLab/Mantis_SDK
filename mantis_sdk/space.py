@@ -29,12 +29,19 @@ class Space:
         instance = cls(space_id, _request, cookie, config, colab)
         instance.playwright = await async_playwright().start()
         
-        browser_args = ["--start-maximized"]
+        browser_args = [
+              "--start-maximized",
+              "--disable-gpu",  # Often helps in environments without a dedicated GPU
+              "--use-gl=egl",   # Can sometimes force hardware rendering
+        ]
+        
         if colab:
             browser_args.extend([
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
+                  "--no-sandbox",
+                  "--disable-setuid-sandbox",
+                  "--disable-dev-shm-usage", # Often necessary in containerized environments
             ])
+
         
         instance.browser = await instance.playwright.chromium.launch(headless=instance.headless, args=browser_args)
         await instance._init_space()
