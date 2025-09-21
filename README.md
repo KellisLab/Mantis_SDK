@@ -87,6 +87,8 @@ Execute code within spaces
 Generate plots and capture screenshots
 Manage panels and space configuration
 Support for async operations
+```
+
 ## Data Types
 
 ```python 
