@@ -9,6 +9,8 @@ import json
 import time
 from playwright.async_api import async_playwright
 import logging
+import websockets
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -252,21 +254,26 @@ class MantisClient:
             on_recieve_id (space_id, layer_id)
                 
         choseUMAPvariations = False # Whether we have chosen the variables yet
-        
+        previous_progress = -1
+
         # Progress callback
         while True:
             # Get current progress, throw if error
-            progress = self._request ("GET", f"synthesis/progress/{layer_id}")
+            progress = self._request ("GET", f"synthesis/progress/{space_id}")
             logger.debug (progress)
             
             if progress["error"]:
                 raise SpaceCreationError (progress["error"])
+
+            if progress["progress"] != previous_progress:
+                print(f"{progress["progress"]}% - {progress['message']}")
+                previous_progress = progress["progress"]
                         
             # Detects whether we need to select some params
             if progress["progress"] >= 50 and not choseUMAPvariations:
                 parameters = None
 
-                umap_variations = self._request("GET", f"synthesis/parameters/{layer_id}")
+                umap_variations = self._request("GET", f"synthesis/parameters/{space_id}")
 
                 # If the choice exists, make it
                 if "umap_variations" in umap_variations and "parameters" in umap_variations["umap_variations"]:
@@ -301,6 +308,31 @@ class MantisClient:
             time.sleep (1)
             
         return {"space_id": space_id}
+
+    async def get_annotations(self, space_id: str) -> Dict[str, Any]:
+        """
+        Get annotations for a given space.
+        """
+        ws_host = self.config.backend_host.replace("https", "wss").replace("http", "ws")
+        url = f"{ws_host}/ws/space/{space_id}/"
+        headers = {"Cookie": self.cookie}
+        result = {}
+
+        print(url)
+        print(headers)
+
+        async with websockets.connect(url, additional_headers=headers) as ws:
+            while True:
+                msg = await ws.recv()
+                data = json.loads(msg)
+                
+                if data.get('type'):
+                    result[data.get('type')] = data
+                
+                if data.get('type') == 'finished':
+                    break
+
+        return result
 
     async def open_space(self, space_id: str, colab: bool = False) -> "Space":
         """
