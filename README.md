@@ -34,18 +34,30 @@ The `MantisClient` object requires the parameter `cookie` to be passed in. This 
 
 ***Note***: If you are using a local backend, you must run it with docker, or the space creation will NOT work. To do so, `cd docker` from the backend root, then `docker compose up -d --build`. After you run the build once, you can re-run it simply with `docker compose up`. If things dno't work, check the logs and make sure they are not empty.
 
-```python
-from client import MantisClient, SpacePrivacy, DataType, ReducerModels 
-from render_args import RenderArgs 
-import pandas as pd
+To get your cookie, go to any space (e.g. https://mantisdev.csail.mit.edu/space/d99efc56-00d5-4f18-8ecc-0620500fcf79/). Then go to the devtools, network tab. Click on the getCounter request, go to headers, and copy and paste the cookie field (should look like "session_id=...")
 
-mantis = MantisClient("/api/proxy/", cookie)
+```python
+from mantis_sdk.client import MantisClient, SpacePrivacy, DataType, ReducerModels 
+from mantis_sdk.render_args import RenderArgs 
+from mantis_sdk.config import ConfigurationManager
+import pandas as pd
+import asyncio
+import json
+
+config = ConfigurationManager()
+config.update({
+    "host": "https://mantisdev.csail.mit.edu",
+    "domain": "mantisdev.csail.mit.edu",
+    "backend_host": "https://mantiscluster.csail.mit.edu"
+})
+
+mantis = MantisClient("/api/proxy/", cookie, config=config)
 
 # Create DF (Real data will need more points)
 df = pd.DataFrame({
-    "Symbol": ["AAPL", "GOOGL", "MSFT", "AMZN", "FB"],
-    "Market Cap": [2000, 1500, 1300, 1200, 800],
-    "Description": ["Apple Inc.", "Alphabet Inc.", "Microsoft Corporation", "Amazon.com Inc.", "Facebook Inc."]
+    "Symbol": ["AAPL", "GOOGL", "MSFT", "AMZN", "FB"] + ["COMPANY"+str(i) for i in range(100)],
+    "Market Cap": [2000, 1500, 1300, 1200, 800] + [i*10 for i in range(100)],
+    "Description": ["Apple Inc.", "Alphabet Inc.", "Microsoft Corporation", "Amazon.com Inc.", "Facebook Inc."] + ["This is company number "+str(i) for i in range(100)]
 })
 
 # Set types
@@ -58,18 +70,14 @@ new_space_id = mantis.create_space("Stock data",
                                    data=df, 
                                    data_types=data_types,
                                    reducer=ReducerModels.UMAP,
-                                   privacy_level=SpacePrivacy.Private)["space_id"]
+                                   privacy_level=SpacePrivacy.PRIVATE)["space_id"]
 
-# Open space
-space = await mantis.open_space(space_id)
+print("Created space:", new_space_id)
 
-# Interact with space
-await space.select_points(100) 
-plot = await space.render_plot("Market Cap", "embed_y")
+annotations = asyncio.run(mantis.get_annotations(new_space_id))
 
-# Close when done
-await space.close()
-```
+print("=" * 20, "Annotations", "=" * 20)
+print(json.dumps(annotations, indent=2))```
 
 ## Key Features
 
@@ -111,59 +119,4 @@ ReducerModels.TSNE # t-SNE
 ```python 
 AIProvider.OpenAI
 AIProvider.HuggingFace
-```
-
-## Examples
-
-### Create Space from CSV
-
-```python 
-# Load Mantis
-mantis = MantisClient("/api/proxy/", cookie)
-
-# Set data path + types
-data_path = "./StockData.csv"
-
-data_types = {"Symbol": DataType.Title,
-              "Market Cap": DataType.Numeric,
-              "Description": DataType.Semantic}
-
-# Create space
-new_space_id = mantis.create_space("Stock data,", 
-                                   data=data_path, 
-                                   data_types=data_types,
-                                   reducer=ReducerModels.UMAP,
-                                   privacy_level=SpacePrivacy.PRIVATE)["space_id"]
-```
-
-### Capture Visualization
-
-```python 
-# Select 100 points
-await space.select_points (100)
-
-# Plot embed dimensions
-plot = await space.render_plot ("embed_x", "embed_y")
-```
-
-### Run Analysis
-
-```python 
-code = """
-
-computation = 6**4
-print ('Hello from SDK, :P -> ' + str(computation))
-
-"""
-
-# Wait for code execution to finish (returns output)
-await space.run_code (code)
-```
-
-### Manage Panels
-
-```python 
-await space.close_panel ("bags")
-await space.close_panel ("quicksheet")
-await space.close_panel ("userlogs")
 ```
