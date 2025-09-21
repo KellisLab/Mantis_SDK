@@ -26,11 +26,13 @@ class DataType:
     Categoric = "categoric"
     Date = "date"
     Links = "links"
+    Coordinate1 = "coordinate1"
+    Coordinate2 = "coordinate2"
     CustomModel = "customModel"
     Delete = "delete"
     Connection = "connection"
     
-    All = [Title, Semantic, Numeric, Categoric, Date, Links, CustomModel, Connection, Delete]
+    All = [Title, Semantic, Numeric, Categoric, Date, Links, Coordinate1, Coordinate2, CustomModel, Connection, Delete]
     
 class AIProvider:
     OpenAI = "openai"
@@ -212,6 +214,8 @@ class MantisClient:
                 data_input[possible_data_type] = possible_data_type == data_type
                 
             data_types_sanitized.append (data_input)
+
+        print (data_types_sanitized)
             
         # Load custom models and assert their length
         if custom_models is None:
@@ -308,6 +312,28 @@ class MantisClient:
             time.sleep (1)
             
         return {"space_id": space_id}
+
+    def getClusterQuestions(self, 
+                            space_id: str, 
+                            depth: int = 3, 
+                            breadth: int = 3, 
+                            sample_size: int = 8, 
+                            max_questions: int = 0, 
+                            context: str = "", 
+                            output_format: str = "json") -> Any:
+        """
+        Get cluster question trees for a given space.
+        """
+        params = {
+            "space_id": space_id,
+            "depth": depth,
+            "breadth": breadth,
+            "sample_size": sample_size,
+            "max_questions": max_questions,
+            "context": context,
+            "output_format": output_format
+        }
+        return self._request("GET", "/api/getClusterQuestionTrees/", params=params)
 
     async def get_annotations(self, space_id: str) -> Dict[str, Any]:
         """
