@@ -231,6 +231,8 @@ class MantisClient:
             "data_types": json.dumps(data_types_sanitized),
             "ai_provider": ai_provider,
             "file_key": file_key,
+            "chat_model": "gpt-4o-mini",
+            "embedding_model": "text-embedding-3-small",
         }
 
         # Create files dict for the request
