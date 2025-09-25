@@ -270,7 +270,6 @@ class MantisClient:
                 raise SpaceCreationError (progress["error"])
 
             if progress["progress"] != previous_progress:
-                print(f"{progress["progress"]}% - {progress['message']}")
                 previous_progress = progress["progress"]
                         
             # Detects whether we need to select some params
