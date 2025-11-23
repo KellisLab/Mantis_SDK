@@ -40,15 +40,7 @@ class Cell:
         Updates the content of this cell.
         """
         self.notebook.update_cell(self.index, content)
-        # Refresh local data is handled by notebook.update_cell calling refresh, 
-        # but we might want to update this instance's data directly or fetch fresh.
-        # For consistency, we'll rely on the notebook to refresh and we might need to re-fetch this cell object
-        # or update its internal data if the notebook updates it in place.
-        # For now, let's assume notebook.refresh() updates the list of cells, 
-        # so this specific instance might become stale if we don't be careful.
-        # A better approach might be to have the notebook update this instance.
-        # But for simplicity, we'll just update the local data to match what we sent, 
-        # and let the next refresh sync everything.
+        
         if isinstance(self._data["source"], list):
              self._data["source"] = [content]
         else:
@@ -103,65 +95,19 @@ class Notebook:
                 logger.warning("Session check failed, creating new session.")
                 self.session_id = None
 
-        # Create new session
-        # We need the user_id. The client might not expose it directly if it's just using a cookie.
-        # However, the frontend API `createSession` takes `user_id`.
-        # If the client doesn't have user_id, we might have a problem.
-        # Looking at client.py, it doesn't seem to store user_id.
-        # But `listNotebooks` in frontend takes `user_id`.
-        # Let's assume for now we can get it or it's not strictly required if the cookie is there, 
-        # OR we need to fetch it.
-        # The `MantisClient` doesn't seem to have a `get_user_info` method.
-        # Wait, the frontend uses `useNotebookState` which calls `initialize(userID)`.
-        # The user ID comes from `useDataStore`.
-        # If the SDK is used with a token/cookie, maybe the backend infers the user?
-        # Let's check `client.py` again. It has `_authenticate` which is not implemented.
-        # It takes `cookie` in `__init__`.
-        # If I look at `api/sessions/create/` payload in `notebookApi.ts`: `user_id: userId`.
-        # I might need to ask the user or fetch it.
-        # For now, I will try to fetch it from a "whoami" endpoint if it exists, or assume the user knows it.
-        # But the `MantisClient` doesn't have it.
-        # Let's look at `client.py` imports. Nothing special.
-        # I'll assume for now that I can pass a dummy user_id or that the backend handles it if missing/from cookie.
-        # Actually, looking at `notebookApi.ts`, `createSession` sends `user_id`.
-        # If I don't have it, I might fail.
-        # Let's try to list notebooks to see if we can get it? No, list requires user_id too.
-        # Maybe `get_spaces`?
-        # Let's assume the user provides it or I can get it. 
-        # Actually, I'll add a `user_id` parameter to `create_notebook` in `client.py` and store it.
-        # But wait, `MantisClient` is initialized with just base_url and cookie.
-        # I'll assume the cookie is enough for auth, but the API explicitly asks for user_id in the body.
-        # I will try to use a placeholder or maybe the client should have it.
-        # Let's check `frontend_reference_code/notebookApi.ts` again.
-        # `createSession` payload: `{ user_id: userId, nid: nid, broker_token: brokerToken }`.
-        # I will use a placeholder "sdk_user" if not available, or maybe I should check if there is an endpoint to get current user.
-        # Since I can't check the backend, I'll assume I need to pass it.
-        # I'll add `user_id` to `Notebook` init and `MantisClient` methods.
-        
-        # For now, I'll try to create session without user_id or with a dummy one if strict.
-        # But wait, `MantisClient` doesn't have `user_id`.
-        # I will check if `get_spaces` returns user info? Unlikely.
-        # I'll proceed with assuming I can pass a dummy or the user needs to provide it.
-        # I'll add `user_id` to `MantisClient` init optionally?
-        # Or just pass it to `create_notebook`.
-        pass 
-
     def _create_session(self):
-         # This is a helper for _ensure_session
-         # We need user_id. I'll try to get it from client if I add it there, or use a default.
-         # For now, I'll use "sdk_user" as a fallback.
-         user_id = getattr(self.client, "user_id", "sdk_user")
-         
-         payload = {
-             "user_id": user_id,
-             "nid": self.nid,
-             "project_id": self.space_id
-         }
-         response = self.client._request("POST", "/api/sessions/create", json=payload)
-         if response.get("success"):
-             self.session_id = response.get("session_id")
-         else:
-             raise RuntimeError(f"Failed to create session: {response.get('error')}")
+        user_id = getattr(self.client, "user_id", "sdk_user")
+        
+        payload = {
+            "user_id": user_id,
+            "nid": self.nid,
+            "project_id": self.space_id
+        }
+        response = self.client._request("POST", "/api/sessions/create", json=payload)
+        if response.get("success"):
+            self.session_id = response.get("session_id")
+        else:
+            raise RuntimeError(f"Failed to create session: {response.get('error')}")
 
     def _refresh_content(self):
         """
@@ -286,17 +232,10 @@ class Notebook:
             "project_id": self.space_id
         }
         
-        # Execute is async in backend, we might need to poll for results.
-        # The frontend polls `getNotebookContent`.
-        # Here we can do a simple poll loop waiting for execution to finish.
-        # But how do we know it finished? 
-        # The frontend checks `metadata.executing`.
-        
         response = self.client._request("POST", "/api/sessions/execute", json=payload)
         if not response.get("success"):
              raise RuntimeError(f"Failed to execute cell: {response.get('error')}")
              
-        # Poll for completion
         while True:
             time.sleep(0.5)
             self._refresh_content()
@@ -306,11 +245,11 @@ class Notebook:
                 continue
                 
             cell = self.cells[index]
-            # Check if executing
-            # Note: metadata might be None
+            # check if executing
+            # note: metadata might be None
             meta = cell.metadata or {}
             if not meta.get("executing", False):
-                # Execution finished
+                # execution finished
                 return cell.outputs
 
     def execute_all(self):
@@ -344,5 +283,5 @@ class Notebook:
             self.client._request("POST", "/api/notebook/drop", json=payload)
             self.session_id = None
         else:
-             # If no session, just drop the notebook
+             # if no session, just drop the notebook
              self.client._request("POST", "/api/notebook/drop", json={"nid": self.nid, "project_id": self.space_id})
