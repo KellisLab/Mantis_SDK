@@ -180,3 +180,7 @@ cython_debug/
 mantis_sdk/main.py
 test.csv
 ./test.csv
+main.py
+./main.py
+./venv
+venv/

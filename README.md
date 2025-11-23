@@ -35,11 +35,15 @@ The `MantisClient` object requires the parameter `cookie` to be passed in. This 
 ***Note***: If you are using a local backend, you must run it with docker, or the space creation will NOT work. To do so, `cd docker` from the backend root, then `docker compose up -d --build`. After you run the build once, you can re-run it simply with `docker compose up`. If things dno't work, check the logs and make sure they are not empty.
 
 ```python
-from client import MantisClient, SpacePrivacy, DataType, ReducerModels 
-from render_args import RenderArgs 
+from mantis_sdk.client import MantisClient, SpacePrivacy, DataType, ReducerModels 
+from mantis_sdk.render_args import RenderArgs 
+from mantis_sdk.config import ConfigurationManager
 import pandas as pd
 
-mantis = MantisClient("/api/proxy/", cookie)
+# You need to provide your cookie and a space_id (can be dummy for creation)
+cookie = "YOUR_COOKIE_HERE"
+
+mantis = MantisClient("/api/proxy/", cookie=cookie, space_id="dummy")
 
 # Create DF (Real data will need more points)
 df = pd.DataFrame({
@@ -58,10 +62,11 @@ new_space_id = mantis.create_space("Stock data",
                                    data=df, 
                                    data_types=data_types,
                                    reducer=ReducerModels.UMAP,
-                                   privacy_level=SpacePrivacy.Private)["space_id"]
+                                   privacy_level=SpacePrivacy.PRIVATE)["space_id"]
 
 # Open space
-space = await mantis.open_space(space_id)
+# Re-initialize client with the new space_id if needed, or just use the space object
+space = await mantis.open_space(new_space_id)
 
 # Interact with space
 await space.select_points(100) 
@@ -166,4 +171,39 @@ await space.run_code (code)
 await space.close_panel ("bags")
 await space.close_panel ("quicksheet")
 await space.close_panel ("userlogs")
+```
+
+### Notebooks
+
+You can create and manage notebooks within a space.
+
+```python
+# Create a notebook
+nb = mantis.create_notebook(space_id, "My Analysis", "user_id")
+
+# Add a cell
+code = """
+print("Hello from Mantis Notebook!")
+"""
+cell = nb.add_cell(code)
+
+# Execute cell
+outputs = cell.execute()
+print(outputs)
+```
+
+### Configuration
+
+You can configure the client using `ConfigurationManager`.
+
+```python
+from mantis_sdk.config import ConfigurationManager
+
+config = ConfigurationManager()
+config.update({
+    "timeout": 60000,
+    "render_args": RenderArgs(headless=True)
+})
+
+mantis = MantisClient("/api/proxy/", cookie=cookie, space_id=space_id, config=config)
 ```

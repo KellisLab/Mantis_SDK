@@ -47,12 +47,14 @@ class MantisClient:
     SDK for interacting with your Django API.
     """
 
-    def __init__(self, base_url: str, cookie: str, config: Optional[ConfigurationManager] = None):
+    def __init__(self, base_url: str, cookie: str, space_id: str, config: Optional[ConfigurationManager] = None):
         """
         Initialize the client.
 
         :param base_url: Base URL of the API.
-        :param token: Optional authentication token.
+        :param cookie: Authentication cookie.
+        :param space_id: The space ID to authenticate against.
+        :param config: Optional configuration manager.
         """
         self.base_url = base_url.rstrip("/")
 
@@ -62,12 +64,36 @@ class MantisClient:
             self.config = config
             
         self.cookie = cookie
+        self.space_id = space_id
+        self.vscode_token = None
         
-        if self.cookie is None:
-            self._authenticate ()
+        if self.cookie:
+            self._authenticate()
             
-    def _authenticate (self):
-        raise NotImplementedError ("Authentication is not implemented yet.")
+    def _authenticate(self):
+        """
+        Authenticates by creating a VSCode token.
+        """
+        try:
+            # We use the cookie to get the token
+            # The endpoint is /api/jupyter/vscode-auth-token/
+            # It requires project_id in the body
+            url = f"{self.base_url.lstrip('/').rstrip('/')}/api/jupyter/vscode-auth-token/"
+            headers = {"cookie": self.cookie}
+            data = {"project_id": self.space_id}
+            
+            response = requests.post(url, json=data, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("success") and result.get("token"):
+                self.vscode_token = result.get("token")
+                logger.info("Successfully authenticated with VSCode token.")
+            else:
+                logger.warning(f"Failed to get VSCode token: {result}")
+                
+        except Exception as e:
+            logger.error(f"Authentication failed: {e}")
 
     def _request(self, method: str, endpoint: str, rm_slash: bool = False, **kwargs) -> Any:
         """
@@ -80,7 +106,7 @@ class MantisClient:
         def remove_slash (s: str):
             return s.lstrip('/').rstrip('/')
         
-        url = f"{self.config.host}/{remove_slash(self.base_url)}/{remove_slash(endpoint)}/"
+        url = f"{remove_slash(self.base_url)}/{remove_slash(endpoint)}/"
         
         # This is one of the weirdest cases I have required
         # some endpoints don't authenticate if there is a slash at the end
@@ -89,6 +115,10 @@ class MantisClient:
             url = url.rstrip("/")
         
         headers = {"cookie": self.cookie}
+        
+        # add VSCode token if available
+        if self.vscode_token:
+            headers["VSCode-Token"] = self.vscode_token
         
         if method.upper() == "GET":
             headers["Cache-Control"] = "no-cache"  # Prevent caching for GET requests
@@ -100,12 +130,17 @@ class MantisClient:
             headers.update (kwargs["headers"])
             del kwargs["headers"]
 
+        reponse_content = None
+
         try:
             response = requests.request(method, url, headers=headers, **kwargs)
+            reponse_content = response.text
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            raise RuntimeError(f"API request failed: {e}. Text: {response.text}")
+            # capture response text for better debugging
+            response_text = reponse_content if reponse_content else getattr(e.response, 'text', '') if e.response else str(e)
+            raise RuntimeError(f"API request failed: {e}. Text: {response_text}\nURL: {url}\nHeaders: {headers}")
 
     def get_spaces (self) -> Dict[str, Any]:
         """
@@ -300,6 +335,17 @@ class MantisClient:
             
         return {"space_id": space_id}
 
+    def resolve_map_to_project(self, map_id: str) -> str:
+        """
+        Resolves a map ID to a project ID.
+        """
+        response = self._request("POST", "/api/notebook/resolve_map_to_project", json={"map_id": map_id})
+        
+        if response.get("success"):
+            return response.get("project_id")
+        else:
+            raise RuntimeError(f"Failed to resolve map to project: {response.get('error')}")
+
     async def open_space(self, space_id: str) -> "Space":
         """
         Asynchronously open a space by ID.
@@ -323,3 +369,40 @@ class MantisClient:
         """
         # Clean up if needed
         pass
+
+    def create_notebook(self, space_id: str, notebook_name: str = "Untitled", user_id: str = "sdk_user") -> "Notebook":
+        """
+        Creates a new notebook in the specified space.
+        """
+        from .notebook import Notebook
+        
+        payload = {
+            "user_id": user_id,
+            "notebook_name": notebook_name,
+            "project_id": space_id,
+            "notebook_code": '{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}'
+        }
+        
+        response = self._request("POST", "/api/notebook/create", json=payload)
+        
+        if response.get("success"):
+            nid = response.get("nid")
+            return Notebook(self, space_id, nid, notebook_name)
+        else:
+            raise RuntimeError(f"Failed to create notebook: {response.get('error')}")
+
+    def get_notebook(self, space_id: str, notebook_id: str) -> "Notebook":
+        """
+        Gets an existing notebook.
+        """
+        from .notebook import Notebook
+        
+        # verify it exists
+        response = self._request("GET", "/api/notebook/get/", params={"nid": notebook_id, "project_id": space_id})
+        
+        if response.get("success"):
+            notebook_data = response.get("notebook", {})
+            name = notebook_data.get("notebook_name", "Untitled")
+            return Notebook(self, space_id, notebook_id, name)
+        else:
+            raise RuntimeError(f"Failed to get notebook: {response.get('error')}")

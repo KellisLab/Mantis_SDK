@@ -39,7 +39,6 @@ ptyprocess==0.7.0
 pure_eval==0.2.3
 pyasn1==0.6.1
 pyasn1_modules==0.4.1
-pyee==11.1.1
 Pygments==2.19.1
 pyparsing==3.2.1
 pyppeteer
@@ -59,4 +58,3 @@ tzdata==2025.1
 urllib3==1.26.20
 wcwidth==0.2.13
 websockets==10.4
-zipp==3.21.0
