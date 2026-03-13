@@ -42,34 +42,74 @@ class ReducerModels:
 class SpaceCreationError (Exception):
     pass
 
+class BackendModeError(Exception):
+    pass
+
 class MantisClient:
     """
     SDK for interacting with your Django API.
     """
 
-    def __init__(self, base_url: str, cookie: str, space_id: str, config: Optional[ConfigurationManager] = None):
+    def __init__(self, base_url: str, cookie: str = None, space_id: str = None,
+                 config: Optional[ConfigurationManager] = None,
+                 backend_mode: bool = False,
+                 unlocked_token: str = None,
+                 unlocked_uid: str = None):
         """
         Initialize the client.
 
         :param base_url: Base URL of the API.
-        :param cookie: Authentication cookie.
+        :param cookie: Authentication cookie (not used in backend mode).
         :param space_id: The space ID to authenticate against.
         :param config: Optional configuration manager.
+        :param backend_mode: If True, authenticate via X-unlocked-token/X-unlocked-uid headers.
+        :param unlocked_token: Required when backend_mode is True.
+        :param unlocked_uid: Required when backend_mode is True.
         """
         self.base_url = base_url.rstrip("/")
+        self.backend_mode = backend_mode
 
         if config is None:
             self.config = ConfigurationManager()
         else:
             self.config = config
+
+        if self.backend_mode:
+            if not unlocked_token or not unlocked_uid:
+                raise ValueError("unlocked_token and unlocked_uid are required when backend_mode is True")
+            self.unlocked_token = unlocked_token
+            self.unlocked_uid = unlocked_uid
+            self.cookie = None
+            self.space_id = space_id
+            self.vscode_token = None
+        else:
+            self.cookie = cookie
+            self.space_id = space_id
+            self.vscode_token = None
+
+            if self.cookie:
+                self._authenticate()
             
-        self.cookie = cookie
-        self.space_id = space_id
-        self.vscode_token = None
-        
-        if self.cookie:
-            self._authenticate()
-            
+    def _get_auth_headers(self) -> dict:
+        """returns auth headers appropriate for the current mode.
+        use these for both HTTP and WSS requests."""
+        if self.backend_mode:
+            return {
+                "X-unlocked-token": self.unlocked_token,
+                "X-unlocked-uid": self.unlocked_uid,
+            }
+        headers = {"cookie": self.cookie}
+        if self.vscode_token:
+            headers["VSCode-Token"] = self.vscode_token
+        return headers
+
+    def _check_frontend_allowed(self):
+        """raises BackendModeError if frontend features (Space/host) are unavailable."""
+        if self.backend_mode:
+            raise BackendModeError(
+                "Frontend features (Space, host-based navigation) are disabled in backend mode."
+            )
+
     def _authenticate(self):
         """
         Authenticates by creating a VSCode token.
@@ -114,12 +154,8 @@ class MantisClient:
         if rm_slash:
             url = url.rstrip("/")
         
-        headers = {"cookie": self.cookie}
-        
-        # add VSCode token if available
-        if self.vscode_token:
-            headers["VSCode-Token"] = self.vscode_token
-        
+        headers = self._get_auth_headers()
+
         if method.upper() == "GET":
             headers["Cache-Control"] = "no-cache"  # Prevent caching for GET requests
             params = kwargs.get("params", {})
@@ -350,10 +386,11 @@ class MantisClient:
         """
         Asynchronously open a space by ID.
         """
+        self._check_frontend_allowed()
         return await Space.create(
-            space_id, 
-            _request=self._request, 
-            cookie=self.cookie, 
+            space_id,
+            _request=self._request,
+            cookie=self.cookie,
             config=self.config
         )
 
