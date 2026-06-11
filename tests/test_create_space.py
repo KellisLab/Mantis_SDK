@@ -65,6 +65,21 @@ def test_create_space_custom_models_length_validated(client, transport):
         )
 
 
+def test_create_space_stalls_out_instead_of_hanging(client, transport):
+    # progress never advances past 0 → stall_timeout should raise rather than loop forever.
+    def responder(method, url, kwargs):
+        if url.endswith("/synthesis/landscape/"):
+            return {"map_id": "m1", "space_id": "s1"}
+        return {"progress": 0, "completed": False, "error": None}
+
+    transport.responder = responder
+    client.spaces.POLL_INTERVAL = 0  # don't actually sleep in the test.
+    with pytest.raises(SpaceCreationError, match="stalled"):
+        client.spaces.create(
+            "t", _df(), {"A": DataType.Title, "B": DataType.Semantic}, stall_timeout=0.01,
+        )
+
+
 def test_create_space_no_wait_skips_polling(client, transport):
     transport.queue = [{"map_id": "m1", "space_id": "s1"}]
     handle = client.spaces.create(

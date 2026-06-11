@@ -36,9 +36,15 @@ def test_check_compatibility_reports_shape(client, transport):
 
 
 def test_ids_by_name_filters_by_privacy(client, transport):
+    # current getSpaces returns "id"; assert that key drives the lookup.
     transport.queue = [{
-        "private": [{"space_id": "s1", "space_name": "Foo"}, {"space_id": "s2", "space_name": "Bar"}],
-        "public": [{"space_id": "s3", "space_name": "Foo"}],
+        "private": [{"id": "s1", "space_name": "Foo"}, {"id": "s2", "space_name": "Bar"}],
+        "public": [{"id": "s3", "space_name": "Foo"}],
     }]
     ids = client.spaces.ids_by_name("Foo", ["private"])
     assert ids == ["s1"]
+
+
+def test_ids_by_name_tolerates_legacy_space_id_key(client, transport):
+    transport.queue = [{"private": [{"space_id": "s9", "space_name": "Foo"}]}]
+    assert client.spaces.ids_by_name("Foo", ["private"]) == ["s9"]

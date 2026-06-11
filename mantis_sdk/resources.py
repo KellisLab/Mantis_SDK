@@ -113,7 +113,10 @@ class SpacesResource(_BaseResource):
             key = str(level)
             for space in spaces.get(key, []):
                 if space.get("space_name") == space_name:
-                    ids.append(space["space_id"])
+                    # current getSpaces returns "id"; tolerate the older "space_id" too.
+                    sid = space.get("id") or space.get("space_id")
+                    if sid:
+                        ids.append(sid)
         return ids
 
     def create(
@@ -132,11 +135,12 @@ class SpacesResource(_BaseResource):
         on_receive_id: Callable[[str, str], None] | None = None,
         show_progress: bool = False,
         wait: bool = True,
+        stall_timeout: float | None = 600.0,
     ) -> SpaceHandle:
         """create a space from a DataFrame or csv path, then (by default) poll to completion.
 
         returns a SpaceHandle carrying space_id and map_id. set wait=False to return as soon
-        as the pipeline is enqueued."""
+        as the pipeline is enqueued. stall_timeout raises if progress stops advancing."""
         buffer, columns, file_extension = self._load_data(data)
 
         data_types_sanitized = self._sanitize_data_types(columns, data_types)
@@ -180,7 +184,9 @@ class SpacesResource(_BaseResource):
             on_receive_id(space_id, map_id)
 
         if wait:
-            self._poll_until_done(map_id, on_progress=on_progress, show_progress=show_progress)
+            self._poll_until_done(
+                map_id, on_progress=on_progress, show_progress=show_progress, stall_timeout=stall_timeout
+            )
 
         return SpaceHandle(space_id, map_id, self._client)
 
@@ -254,8 +260,13 @@ class SpacesResource(_BaseResource):
         *,
         on_progress: ProgressCallback | None = None,
         show_progress: bool = False,
+        stall_timeout: float | None = 600.0,
     ) -> None:
-        """poll synthesis/progress/<map_id>/ until completed or errored."""
+        """poll synthesis/progress/<map_id>/ until completed or errored.
+
+        stall_timeout guards against a pipeline that never advances (e.g. no celery worker):
+        if progress doesn't change for that many seconds, raise instead of hanging forever.
+        pass None to wait indefinitely."""
         bar = None
         if show_progress:
             try:
@@ -266,6 +277,7 @@ class SpacesResource(_BaseResource):
                 logger.debug("tqdm not installed; show_progress ignored")
 
         last = -1
+        last_change = time.monotonic()
         try:
             while True:
                 progress = self.http.request("GET", f"synthesis/progress/{map_id}")
@@ -279,9 +291,16 @@ class SpacesResource(_BaseResource):
                     if bar is not None:
                         bar.update(pct - max(last, 0))
                     last = pct
+                    last_change = time.monotonic()
 
                 if progress.get("completed") or pct >= 100:
                     return
+
+                if stall_timeout is not None and (time.monotonic() - last_change) > stall_timeout:
+                    raise SpaceCreationError(
+                        f"synthesis stalled at {pct}% for over {stall_timeout:.0f}s "
+                        f"(map_id={map_id}); is a celery worker running?"
+                    )
                 time.sleep(self.POLL_INTERVAL)
         finally:
             if bar is not None:
