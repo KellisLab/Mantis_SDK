@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mantis_sdk"
+version = "0.11.0"
+description = "Pythonic SDK for interacting with the Mantis frontend + backend"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Luca V" }]
+keywords = ["mantis", "embeddings", "visualization", "sdk"]
+
+# true runtime deps only. playwright (browser automation) and tqdm (progress bars)
+# are optional extras so headless rest-only users stay lean.
+dependencies = [
+    "requests>=2.31",
+    "pandas>=2.0",
+    "websockets>=10.4",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.49"]
+progress = ["tqdm>=4.67"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "build>=1.2",
+    "twine>=5.0",
+    "tqdm>=4.67",
+    "playwright>=1.49",
+]
+
+[project.urls]
+Homepage = "https://github.com/KellisLab/Mantis_SDK"
+
+[tool.setuptools.packages.find]
+include = ["mantis_sdk*"]
+
+[tool.setuptools.package-data]
+mantis_sdk = ["py.typed"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
