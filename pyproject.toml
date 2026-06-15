@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mantis_sdk"
-version = "0.11.0"
+version = "0.12.0"
 description = "Pythonic SDK for interacting with the Mantis frontend + backend"
 readme = "README.md"
 requires-python = ">=3.10"

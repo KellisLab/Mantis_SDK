@@ -30,6 +30,10 @@ class ConfigurationManager:
         # X-Internal-Service: true and X-Internal-User-Id headers.
         self.internal_user_id: str | None = os.getenv("MANTIS_INTERNAL_USER_ID")
 
+        # the agent runtime (client.agents) keys identity + capability gating on email, not
+        # user_id. set this (or MANTIS_USER_EMAIL) so agents.session() can default user_email.
+        self.user_email: str | None = os.getenv("MANTIS_USER_EMAIL")
+
         self.render_args = RenderArgs(
             {
                 "headless": True,

@@ -3,6 +3,25 @@
 This project follows [Semantic Versioning](https://semver.org/). Breaking changes bump the minor
 version while pre-1.0.
 
+## [0.12.0] — 2026-06-14
+
+### Added
+- **Agent runtime, provider-scoped** (`client.agents`). Run `opencode` (default, universal) or
+  `claude_code` (opt-in, capability-gated) agents scoped to a space, streaming normalized events.
+  - `client.agents.session(space_id, provider=..., user_email=...)` → async streaming
+    `AgentSession`; `run.ask(...)` yields `AgentEvent`s (`text`/`tool_use`/`tool_result`/`thinking`/
+    `complete`/`fail`); `run.result()` assembles an `AgentResult`.
+  - `client.agents.run_sync(...)` sync convenience.
+  - `client.agents.providers(email)` / `set_provider(email, provider)` over
+    `/agent_execution/providers/`.
+  - New `Provider` enum (`OpenCode`, `ClaudeCode`); `Provider.OpenCode` is the default.
+  - `ProviderUnavailableError` raised up front when `claude_code` isn't `bedrock_enabled`
+    (no silent fallback), and on detecting the run reported a different provider than requested.
+  - `AgentRunError` for mid-stream failures / timeouts.
+  - `ConfigurationManager.user_email` (or `MANTIS_USER_EMAIL`) — the agent runtime keys identity
+    + capability gating on email, not user_id.
+  - Contract verified live against `ws/chat/<chat_id>/<email>/default/?model_id=<provider>`.
+
 ## [0.11.0] — 2026-06-11
 
 ### Fixed (compatibility with current MantisAPI)

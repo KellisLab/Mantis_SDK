@@ -68,6 +68,7 @@ print(space.get_annotations())
 | `client.spaces` | `create(...)`, `from_github(repo_url)`, `get_all()`, `aopen(space_id)` |
 | `client.maps` | `list(space_id)`, `list_idea_ids(map_id)`, `get_ideas(ids)` |
 | `client.notebooks` | `resolve_map_to_project`, `create`, `from_map` |
+| `client.agents` | `session(...)`, `run_sync(...)`, `providers(email)`, `set_provider(email, provider)` |
 | `client.annotations` | `list(map_id)`, `create(map_id, payload)` |
 | `client.search` | `cluster_questions(...)` *(backend route currently disabled)* |
 
@@ -94,6 +95,36 @@ open("plot.png", "wb").write(plot.image_png_bytes())
 nb.checkpoint("after-plot")          # snapshot kernel state
 nb.list_checkpoints()
 ```
+
+## Agents (provider-scoped)
+
+Run a coding agent scoped to a space, streaming its output. Two runtime providers:
+`Provider.OpenCode` (the **default**, available to everyone) and `Provider.ClaudeCode`
+(opt-in — the user must have `bedrock_enabled` capabilities; the SDK checks this up front and
+raises `ProviderUnavailableError` rather than silently downgrading).
+
+The agent runtime identifies the user by **email** (set `config.user_email` or pass `user_email=`),
+not user_id.
+
+```python
+from mantis_sdk import Provider
+
+async with client.agents.session(space_id, provider=Provider.OpenCode, user_email=email) as run:
+    async for ev in run.ask("Summarize the outlier cluster", active_map_id=map_id):
+        if ev.type == "text":      print(ev.text, end="")
+        elif ev.type == "tool_use": print("→", ev.tool_name)
+    result = run.result()          # full text + events; result.provider asserts the runtime used
+
+# sync convenience
+result = client.agents.run_sync("What patterns are here?", space_id, provider=Provider.OpenCode,
+                                user_email=email)
+
+# capability management
+client.agents.providers(email)                     # {providers, default, current}
+client.agents.set_provider(email, Provider.ClaudeCode)
+```
+
+Event types: `text`, `tool_use`, `tool_result`, `thinking`, `init`, `typing`, `complete`, `fail`.
 
 ## Browser automation
 
