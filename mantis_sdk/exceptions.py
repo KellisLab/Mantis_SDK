@@ -51,3 +51,12 @@ class FeatureUnavailableError(MantisError):
 
 class ExecutionError(MantisError):
     """raised when a notebook cell execution fails or times out."""
+
+
+class ProviderUnavailableError(MantisError):
+    """raised when an agent provider isn't usable for the user (e.g. claude_code without
+    bedrock_enabled). prevents the backend's silent fallback to the default provider."""
+
+
+class AgentRunError(MantisError):
+    """raised when an agent run fails mid-stream (the backend emits a chat_fail event)."""

@@ -1,10 +1,12 @@
 """Mantis SDK — pythonic client for the Mantis frontend + backend."""
 from __future__ import annotations
 
+from .agents import AgentEvent, AgentResult, AgentSession
 from .client import MantisClient
 from .config import ConfigurationManager
-from .enums import AIProvider, DataType, ReducerModels, SpacePrivacy
+from .enums import AIProvider, DataType, Provider, ReducerModels, SpacePrivacy
 from .exceptions import (
+    AgentRunError,
     APIConnectionError,
     APIStatusError,
     AuthenticationError,
@@ -13,6 +15,7 @@ from .exceptions import (
     FeatureUnavailableError,
     MantisError,
     NotFoundError,
+    ProviderUnavailableError,
     RateLimitError,
     SpaceCreationError,
 )
@@ -20,7 +23,7 @@ from .notebook import Cell, Notebook
 from .render_args import RenderArgs
 from .resources import SpaceHandle
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
 
 def __getattr__(name: str):
@@ -40,11 +43,16 @@ __all__ = [
     "SpaceHandle",
     "Notebook",
     "Cell",
+    # agents
+    "AgentSession",
+    "AgentEvent",
+    "AgentResult",
     # enums
     "DataType",
     "SpacePrivacy",
     "ReducerModels",
     "AIProvider",
+    "Provider",
     # exceptions
     "MantisError",
     "ConfigurationError",
@@ -56,5 +64,7 @@ __all__ = [
     "SpaceCreationError",
     "FeatureUnavailableError",
     "ExecutionError",
+    "ProviderUnavailableError",
+    "AgentRunError",
     "__version__",
 ]

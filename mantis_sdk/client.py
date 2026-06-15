@@ -13,10 +13,11 @@ from typing import Any
 import pandas as pd
 
 from ._http import HttpClient
+from .agents import AgentsResource
 from .config import ConfigurationManager
 
 # re-exported for back-compat: legacy code imports these enums from mantis_sdk.client.
-from .enums import AIProvider, DataType, ReducerModels, SpacePrivacy
+from .enums import AIProvider, DataType, Provider, ReducerModels, SpacePrivacy
 from .exceptions import ConfigurationError
 from .notebook import NotebooksResource
 from .resources import (
@@ -38,6 +39,7 @@ __all__ = [
     "SpacePrivacy",
     "ReducerModels",
     "AIProvider",
+    "Provider",
 ]
 
 
@@ -67,6 +69,7 @@ class MantisClient:
         self.annotations = AnnotationsResource(self)
         self.search = SearchResource(self)
         self.notebooks = NotebooksResource(self)
+        self.agents = AgentsResource(self)
 
     # --- constructors ---
     @classmethod
