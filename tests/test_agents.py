@@ -50,7 +50,7 @@ def test_opencode_never_calls_capability_check(client, transport):
 def test_claude_code_allowed_when_in_providers(client, transport):
     transport.queue = [{"providers": ["opencode", "claude_code"], "default": "opencode"}]
     client.agents._assert_available("u@e.com", Provider.ClaudeCode)  # no raise
-    assert transport.calls[0]["url"].endswith("/agent_execution/providers/")
+    assert transport.calls[0]["url"].endswith("/api/agent_execution/providers/")
 
 
 def test_claude_code_blocked_when_not_available(client, transport):
@@ -72,7 +72,7 @@ def test_set_provider_posts_correct_body(client, transport):
     transport.queue = [{"current": "claude_code", "providers": ["opencode", "claude_code"]}]
     client.agents.set_provider("u@e.com", Provider.ClaudeCode)
     call = transport.calls[0]
-    assert call["url"].endswith("/agent_execution/providers/set/")
+    assert call["url"].endswith("/api/agent_execution/providers/set/")
     assert call["kwargs"]["json"] == {"user_email": "u@e.com", "provider": "claude_code"}
 
 

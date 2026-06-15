@@ -9,7 +9,7 @@ verified against the live backend (orchestration/composer + agent_execution):
   - wire events: typing_indicator, chat_messages (assistant text), tool_use, tool_result,
     thinking, agent_session_init, then terminal chat_complete / chat_fail. events echo
     `provider`, so we can assert the run actually used the requested runtime.
-  - capability REST: GET /agent_execution/providers/?user_email=, POST .../providers/set/.
+  - capability REST: GET /api/agent_execution/providers/?user_email=, POST .../providers/set/.
 
 opencode is the safe default. claude_code is opt-in and capability-checked up front so we
 raise ProviderUnavailableError instead of letting the backend silently fall back."""
@@ -214,16 +214,18 @@ class AgentsResource:
         self.http = client.http
 
     # --- capabilities (REST) ---
+    # routes are mounted under api/ (backend/urls.py: path('api/', include('agent_execution.urls'))),
+    # so the proxy-relative path is /api/agent_execution/...
     def providers(self, user_email: str) -> dict:
         """list the providers available to a user. shape: {providers, default, current}."""
         return self.http.request(
-            "GET", "/agent_execution/providers", params={"user_email": user_email}, rm_slash=False
+            "GET", "/api/agent_execution/providers", params={"user_email": user_email}
         )
 
     def set_provider(self, user_email: str, provider: Provider | str) -> dict:
         """set the user's default provider (persisted in UserCapabilities)."""
         return self.http.request(
-            "POST", "/agent_execution/providers/set",
+            "POST", "/api/agent_execution/providers/set",
             json={"user_email": user_email, "provider": str(provider)},
         )
 
