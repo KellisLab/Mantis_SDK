@@ -105,12 +105,25 @@ def github_issues(repos: list[str] = REPOS, state: str = "all") -> tuple[pd.Data
 # ------------------------------------------------------------------------- git author rollup
 def github_authors(repo_path: str, since_days: int = 90) -> tuple[pd.DataFrame, dict]:
     """per-author contribution rollup from the LOCAL git clone (no API needed).
-    one point per author; commit count is numeric so the map can size/color by activity."""
+    one point per author; commit count is numeric so the map can size/color by activity.
+
+    raises ValueError (not CalledProcessError) if repo_path isn't a git repo, so the caller's
+    'one source failed, skip it' handling kicks in cleanly."""
+    import os.path
+
     fmt = "%an\t%s"
-    out = subprocess.run(
+    if not os.path.isdir(os.path.join(repo_path, ".git")):
+        raise ValueError(
+            f"MANTISAPI_PATH={repo_path!r} is not a git checkout — set it to your local "
+            f"MantisAPI clone (e.g. ~/Mantis/MantisAPI)."
+        )
+    proc = subprocess.run(
         ["git", "-C", repo_path, "log", f"--since={since_days} days ago", f"--format={fmt}"],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip().splitlines()
+        capture_output=True, text=True, check=False,
+    )
+    if proc.returncode != 0:
+        raise ValueError(f"git log failed in {repo_path!r}: {proc.stderr.strip()[:200]}")
+    out = proc.stdout.strip().splitlines()
 
     agg: dict[str, dict] = {}
     for line in out:

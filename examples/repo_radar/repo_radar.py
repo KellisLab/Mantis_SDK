@@ -111,7 +111,7 @@ def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
             )
             maps[name] = handle.map_id
             print(f"\n  [done] {name}: map {handle.map_id}")
-        except MantisError as exc:
+        except Exception as exc:  # noqa: BLE001 — one bad source must not abort the whole run
             print(f"  [fail] {name}: {exc}")
 
     # alias the space ONCE (on first creation). the backend fix makes re-set idempotent, but we
