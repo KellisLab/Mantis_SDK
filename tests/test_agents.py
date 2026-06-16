@@ -122,7 +122,7 @@ class _FakeWS:
 def _session(client, provider=Provider.OpenCode, script=None):
     sess = client.agents.session(
         "space1", provider=provider, user_email="u@e.com",
-        check_capability=False, timeout=5,
+        check_capability=False, timeout=5, auto_space_state=False,
     )
     sess._ws = _FakeWS(script or [])
     return sess
@@ -189,7 +189,7 @@ async def test_ask_sends_map_and_bag_scoping(client):
 def test_ws_url_uses_email_path_and_provider(client):
     sess = client.agents.session(
         "space1", provider=Provider.ClaudeCode, user_email="a+b@e.com",
-        check_capability=False,
+        check_capability=False, auto_space_state=False,
     )
     url = sess._ws_url()
     # email is url-encoded in the path; provider is the model_id; space is a query param.
@@ -201,6 +201,41 @@ def test_ws_url_uses_email_path_and_provider(client):
 
 def test_default_provider_is_opencode():
     assert AgentsResource.DEFAULT_PROVIDER == Provider.OpenCode
+
+
+def test_session_auto_creates_space_state(client, transport):
+    # scoping to a space should mint a space-state and thread it onto the ws url.
+    transport.queue = [{"id": "ss-123", "name": "SDK agent"}]  # space-state create response
+    sess = client.agents.session("space1", provider=Provider.OpenCode, user_email="u@e.com",
+                                 check_capability=False)
+    assert sess.space_state_id == "ss-123"
+    assert "space_state_id=ss-123" in sess._ws_url()
+    assert "space_id=space1" in sess._ws_url()
+    # it hit the cookie-auth space-state endpoint
+    assert transport.calls[0]["url"].endswith("/api/space-state/")
+
+
+def test_session_skips_space_state_when_disabled(client, transport):
+    sess = client.agents.session("space1", provider=Provider.OpenCode, user_email="u@e.com",
+                                 check_capability=False, auto_space_state=False)
+    assert sess.space_state_id is None
+    assert "space_state_id" not in sess._ws_url()
+    assert transport.calls == []  # no mint call
+
+
+def test_session_reuses_explicit_space_state(client, transport):
+    sess = client.agents.session("space1", provider=Provider.OpenCode, user_email="u@e.com",
+                                 check_capability=False, space_state_id="ss-explicit")
+    assert sess.space_state_id == "ss-explicit"
+    assert transport.calls == []  # no mint call — caller supplied one
+
+
+def test_all_spaces_does_not_mint_space_state(client, transport):
+    # all_spaces has no single space to scope, so no space-state is created.
+    sess = client.agents.session(provider=Provider.OpenCode, user_email="u@e.com",
+                                 check_capability=False, all_spaces=True)
+    assert sess.space_state_id is None
+    assert transport.calls == []
 
 
 @pytest.mark.asyncio

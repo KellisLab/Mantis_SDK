@@ -26,6 +26,7 @@ from .resources import (
     SearchResource,
     SpaceHandle,
     SpacesResource,
+    SpaceStatesResource,
 )
 
 logger = logging.getLogger("mantis_sdk")
@@ -66,6 +67,7 @@ class MantisClient:
         # resource groups.
         self.spaces = SpacesResource(self)
         self.maps = MapsResource(self)
+        self.space_states = SpaceStatesResource(self)
         self.annotations = AnnotationsResource(self)
         self.search = SearchResource(self)
         self.notebooks = NotebooksResource(self)

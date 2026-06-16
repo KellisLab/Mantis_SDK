@@ -89,6 +89,7 @@ class MantisClientProtocol:
     http: HttpClient
     spaces: SpacesResource
     annotations: AnnotationsResource
+    space_states: SpaceStatesResource
 
 
 class _BaseResource:
@@ -344,6 +345,28 @@ class MapsResource(_BaseResource):
 
     def get_ideas(self, ids: list[str]) -> Any:
         return self.http.request("GET", "/api/getIdeas", params={"ids": ",".join(ids)})
+
+
+class SpaceStatesResource(_BaseResource):
+    """create/list space-states — a per-user live view of a space (selection, bags, active map).
+
+    agents need a space-state id so their MCP tools know which space/map to act on; the backend
+    only sets the X-Space-State-ID header when ws/chat is given a space_state_id. the browser
+    mints one when you open a space; a headless sdk session mints one here (same cookie-auth
+    endpoint the frontend uses)."""
+
+    def create(self, space_id: str, name: str = "SDK") -> str:
+        """create a space-state for a space and return its id."""
+        resp = self.http.request(
+            "POST", "/api/space-state", json={"space_id": space_id, "name": name}
+        )
+        if not isinstance(resp, dict) or "id" not in resp:
+            raise MantisError(f"space-state create returned no id: {resp}")
+        return resp["id"]
+
+    def list(self, space_id: str) -> list[dict]:
+        resp = self.http.request("GET", "/api/space-state", params={"space_id": space_id})
+        return resp if isinstance(resp, list) else (resp or [])
 
 
 class AnnotationsResource(_BaseResource):

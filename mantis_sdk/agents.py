@@ -112,11 +112,16 @@ class AgentSession:
 
     def __init__(self, resource: AgentsResource, *, user_email: str, provider: Provider,
                  space_id: str | None, chat_id: str, timeout: float,
-                 all_spaces: bool = False, mode: str | None = None):
+                 all_spaces: bool = False, mode: str | None = None,
+                 space_state_id: str | None = None):
         self._resource = resource
         self.user_email = user_email
         self.provider = Provider(provider)
         self.space_id = space_id
+        # the composer only sets the agent's X-Space-State-ID (which its MCP tools need to know
+        # which space/map to act on) when ws/chat is given a space_state_id. without it the agent
+        # can talk but can't inspect the space.
+        self.space_state_id = space_state_id
         self.chat_id = chat_id
         self.timeout = timeout
         # all_spaces lets one agent reason across every accessible map at once (the backend's
@@ -133,6 +138,8 @@ class AgentSession:
         url = f"{ws_base}/ws/chat/{self.chat_id}/{quote(self.user_email, safe='')}/default/?model_id={self.provider.value}"
         if self.space_id:
             url += f"&space_id={self.space_id}"
+        if self.space_state_id:
+            url += f"&space_state_id={self.space_state_id}"
         return url
 
     async def __aenter__(self) -> AgentSession:
@@ -310,12 +317,20 @@ class AgentsResource:
                 timeout: float = 180.0,
                 check_capability: bool = True,
                 all_spaces: bool = False,
-                mode: str | None = None) -> AgentSession:
+                mode: str | None = None,
+                space_state_id: str | None = None,
+                auto_space_state: bool = True) -> AgentSession:
         """open a streaming agent session. opencode by default; claude_code is checked up front.
 
         set all_spaces=True to let one agent reason across every accessible map at once (the
         backend's all-spaces composer; not possible in the single-space UI). `mode` selects a
         composer mode (e.g. "Orchestrator", "Ask") and triggers initialization on connect.
+
+        when scoped to a space_id, the agent's MCP tools need a space-state id to know which
+        space/map to act on. by default (auto_space_state=True) we mint one via
+        client.space_states.create() — the same cookie-auth endpoint the browser uses — and
+        thread it onto the connect. pass space_state_id to reuse an existing one, or
+        auto_space_state=False to skip (the agent can talk but not inspect the space).
 
         user_email is required (identity for capability gating); falls back to config.user_email.
         agents key on email, not user_id."""
@@ -328,10 +343,12 @@ class AgentsResource:
             )
         if check_capability:
             self._assert_available(user_email, provider)
+        if space_id and not space_state_id and not all_spaces and auto_space_state:
+            space_state_id = self._client.space_states.create(space_id, name="SDK agent")
         return AgentSession(
             self, user_email=user_email, provider=provider, space_id=space_id,
             chat_id=chat_id or f"sdk-{uuid.uuid4()}", timeout=timeout,
-            all_spaces=all_spaces, mode=mode,
+            all_spaces=all_spaces, mode=mode, space_state_id=space_state_id,
         )
 
     def run_sync(self, message: str, space_id: str | None = None, *,
