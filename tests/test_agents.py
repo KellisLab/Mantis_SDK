@@ -39,6 +39,22 @@ def test_event_from_wire_unknown_passes_through():
     assert ev.type == "other" and ev.raw["x"] == 1
 
 
+def test_event_from_wire_ai_final_frame_is_text():
+    # the agent runtime streams assistant text as untyped {sender:ai, message, partial}.
+    final = AgentEvent.from_wire({"sender": "ai", "message": "done", "partial": False})
+    assert final.type == "text" and final.text == "done"
+
+
+def test_event_from_wire_ai_partial_frame_is_typing():
+    # partial snapshots should NOT be counted as text (avoid double-counting).
+    partial = AgentEvent.from_wire({"sender": "ai", "message": "do", "partial": True})
+    assert partial.type == "typing"
+
+
+def test_event_from_wire_heartbeat_is_typing():
+    assert AgentEvent.from_wire({"type": "heartbeat", "message_id": "x"}).type == "typing"
+
+
 # --- capability gating (REST via recording transport) ---
 
 def test_opencode_never_calls_capability_check(client, transport):
@@ -185,3 +201,29 @@ def test_ws_url_uses_email_path_and_provider(client):
 
 def test_default_provider_is_opencode():
     assert AgentsResource.DEFAULT_PROVIDER == Provider.OpenCode
+
+
+@pytest.mark.asyncio
+async def test_all_spaces_initialization_handshake(client):
+    # all_spaces=True must send agent_initialization{all_spaces_mode:true} and wait for the ack.
+    sess = client.agents.session(
+        provider=Provider.OpenCode, user_email="u@e.com", check_capability=False,
+        all_spaces=True, timeout=5,
+    )
+    sess._ws = _FakeWS([{"type": "agent_initialized", "success": True}])
+    await sess._initialize()
+    assert sess._ws.sent[0]["type"] == "agent_initialization"
+    assert sess._ws.sent[0]["all_spaces_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_initialization_failure_raises(client):
+    from mantis_sdk.exceptions import AgentRunError
+
+    sess = client.agents.session(
+        provider=Provider.OpenCode, user_email="u@e.com", check_capability=False,
+        all_spaces=True, timeout=5,
+    )
+    sess._ws = _FakeWS([{"type": "agent_initialized", "success": False, "error": "no spaces"}])
+    with pytest.raises(AgentRunError, match="initialization failed"):
+        await sess._initialize()
