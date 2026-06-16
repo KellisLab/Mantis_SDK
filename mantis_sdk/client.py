@@ -21,6 +21,7 @@ from .enums import AIProvider, DataType, Provider, ReducerModels, SpacePrivacy
 from .exceptions import ConfigurationError
 from .notebook import NotebooksResource
 from .resources import (
+    AliasesResource,
     AnnotationsResource,
     MapsResource,
     SearchResource,
@@ -68,6 +69,7 @@ class MantisClient:
         self.spaces = SpacesResource(self)
         self.maps = MapsResource(self)
         self.space_states = SpaceStatesResource(self)
+        self.aliases = AliasesResource(self)
         self.annotations = AnnotationsResource(self)
         self.search = SearchResource(self)
         self.notebooks = NotebooksResource(self)

@@ -48,3 +48,65 @@ def test_ids_by_name_filters_by_privacy(client, transport):
 def test_ids_by_name_tolerates_legacy_space_id_key(client, transport):
     transport.queue = [{"private": [{"space_id": "s9", "space_name": "Foo"}]}]
     assert client.spaces.ids_by_name("Foo", ["private"]) == ["s9"]
+
+
+# --- aliases ---
+
+def test_alias_resolve_returns_space_id(client, transport):
+    transport.queue = [{"project_id": "sp-9"}]
+    assert client.aliases.resolve("m4m") == "sp-9"
+    assert transport.calls[0]["url"].endswith("/api/getSpaceFromAlias/")
+    assert transport.calls[0]["kwargs"]["params"]["alias"] == "m4m"
+
+
+def test_alias_resolve_missing_returns_none(client, transport):
+    # backend 400s when the alias isn't found → resolve() swallows to None.
+    from mantis_sdk.exceptions import APIStatusError
+
+    def boom(method, url, kwargs):
+        raise APIStatusError("not found", status_code=400, body={"project_id": None})
+
+    transport.responder = boom
+    assert client.aliases.resolve("nope") is None
+
+
+def test_alias_set_posts_body(client, transport):
+    transport.queue = [{"ok": True}]
+    client.aliases.set("sp-1", "m4m")
+    call = transport.calls[0]
+    assert call["url"].endswith("/api/setSpaceAlias/")
+    assert call["kwargs"]["json"] == {"space_id": "sp-1", "alias": "m4m"}
+
+
+def test_resolve_or_create_reuses_existing(client, transport):
+    transport.queue = [{"project_id": "existing-space"}]
+    space_id, created = client.aliases.resolve_or_create_space("m4m")
+    assert (space_id, created) == ("existing-space", False)
+
+
+def test_resolve_or_create_mints_deterministic(client, transport):
+    # alias not found → deterministic uuid5, created=True, and stable across calls.
+    from mantis_sdk.exceptions import APIStatusError
+
+    def notfound(method, url, kwargs):
+        raise APIStatusError("nf", status_code=400, body={})
+
+    transport.responder = notfound
+    a, created_a = client.aliases.resolve_or_create_space("m4m")
+    b, _ = client.aliases.resolve_or_create_space("m4m")
+    assert created_a is True
+    assert a == b  # deterministic — same alias always yields the same space id
+
+
+def test_create_passes_explicit_space_and_map_id(client, transport):
+    import pandas as pd
+
+    from mantis_sdk import DataType
+
+    transport.queue = [{"map_id": "m-fixed", "space_id": "s-fixed"}]
+    df = pd.DataFrame({"A": ["x", "y"], "B": ["p", "q"]})
+    client.spaces.create("t", df, {"A": DataType.Title, "B": DataType.Semantic},
+                         space_id="s-fixed", map_id="m-fixed", wait=False)
+    form = transport.calls[0]["kwargs"]["data"]
+    assert form["space_id"] == "s-fixed"
+    assert form["map_id"] == "m-fixed"

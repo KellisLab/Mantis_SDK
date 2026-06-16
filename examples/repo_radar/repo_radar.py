@@ -28,6 +28,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -67,36 +68,61 @@ def _save_state(state: dict) -> None:
 
 
 # ----------------------------------------------------------------------------- phase 1: maps
-def build_maps(client: MantisClient) -> dict[str, str]:
-    """create the portfolio of maps from the project's own data. returns {name: space_id}."""
-    print("\n=== PHASE 1: building the Mantis-on-Mantis map portfolio ===")
+ALIAS = os.getenv("REPO_RADAR_ALIAS", "m4m")
+
+
+def _stable_map_id(space_id: str, name: str) -> str:
+    """deterministic per-(space, logical map) id so re-runs refresh the SAME map in place."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{space_id}:{name}"))
+
+
+def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
+    """idempotently maintain ONE aliased space (/space/<ALIAS>) holding the 4 radar maps.
+
+    re-runs reuse the same space (resolve via alias) and refresh each map in place via a stable
+    map_id — no duplicate spaces, no orphan maps. returns (space_id, {name: map_id})."""
+    print(f"\n=== PHASE 1: building the Mantis-on-Mantis space (/space/{ALIAS}) ===")
+    space_id, created = client.aliases.resolve_or_create_space(ALIAS)
+    print(f"  space {space_id} ({'new' if created else 'reused'})")
+
     builders = {
         "prs": lambda: sources.github_prs(),
         "issues": lambda: sources.github_issues(),
         "authors": lambda: sources.github_authors(os.getenv("MANTISAPI_PATH", ".")),
         "notes": lambda: sources.meeting_notes(),
     }
-    spaces: dict[str, str] = {}
+    maps: dict[str, str] = {}
+    cap = int(os.getenv("REPO_RADAR_CAP", "0"))  # optional row cap for bounded/demo runs
     for name, build in builders.items():
         try:
             df, data_types = build()
-            cap = int(os.getenv("REPO_RADAR_CAP", "0"))  # optional row cap for bounded/demo runs
             if cap:
                 df = df.head(cap)
             if df.empty:
                 print(f"  [skip] {name}: no rows")
                 continue
-            print(f"  [create] {name}: {len(df)} points → submitting...")
+            map_id = _stable_map_id(space_id, name)
+            print(f"  [upsert] {name}: {len(df)} points → map {map_id[:8]}…")
             handle = client.spaces.create(
                 f"Mantis Radar — {name}", df, data_types,
+                space_id=space_id, map_id=map_id,  # same space + stable map id ⇒ idempotent refresh
                 show_progress=False,
                 on_progress=lambda p, m, t, n=name: print(f"    {n}: {p:3d}% {m or ''}", end="\r"),
             )
-            spaces[name] = handle.space_id
-            print(f"\n  [done] {name}: space {handle.space_id} (map {handle.map_id})")
+            maps[name] = handle.map_id
+            print(f"\n  [done] {name}: map {handle.map_id}")
         except MantisError as exc:
             print(f"  [fail] {name}: {exc}")
-    return spaces
+
+    # alias the space ONCE (on first creation). the backend fix makes re-set idempotent, but we
+    # only need it on the first run; resolve_or_create told us whether this is that run.
+    if created and maps:
+        try:
+            client.aliases.set(space_id, ALIAS)
+            print(f"  [alias] /space/{ALIAS} → {space_id}")
+        except MantisError as exc:
+            print(f"  [alias fail] {exc}")
+    return space_id, maps
 
 
 # ----------------------------------------------------------- phase 2: notebook delta analysis
@@ -131,16 +157,14 @@ plt.tight_layout(); plt.show()
 """
 
 
-def analyze(client: MantisClient, spaces: dict[str, str], state: dict) -> dict:
+def analyze(client: MantisClient, maps_by_name: dict[str, str], state: dict) -> dict:
     """run delta analysis in each map's kernel; checkpoint for week-over-week diffs."""
     print("\n=== PHASE 2: notebook delta analysis (per-map kernel) ===")
     prev = state.get("metrics", {})
     metrics: dict = {}
     chart_png = None
-    for name, space_id in spaces.items():
+    for name, map_id in maps_by_name.items():
         try:
-            maps = client.maps.list(space_id)
-            map_id = maps[0]["id"] if maps else space_id
             nb = client.notebooks.from_map(map_id, name=f"radar-{name}",
                                            user_id=os.getenv("MANTIS_USER_EMAIL"))
             cell = nb.add_cell(DELTA_CODE)
@@ -194,15 +218,17 @@ SYNTHESIS_PROMPT = (
 )
 
 
-async def synthesize(client: MantisClient, spaces: dict[str, str], provider: Provider) -> str:
+async def synthesize(client: MantisClient, space_id: str, provider: Provider) -> str:
     """run an agent to synthesize a briefing. provider-scoped (opencode default, claude_code
-    opt-in). degrades to a clear note if the agent runtime/credentials are unavailable."""
+    opt-in). degrades to a clear note if the agent runtime/credentials are unavailable.
+
+    the agent is scoped to the one m4m space (it auto-mints a space-state so its MCP tools can
+    inspect the maps). all_spaces mode would reason across every accessible space instead."""
     print(f"\n=== PHASE 3: agent synthesis (provider={provider}, all_spaces={USE_ALL_SPACES}) ===")
     email = os.environ["MANTIS_USER_EMAIL"]
-    # anchor on the PRs map (richest signal); None space_id when all_spaces.
-    space_id = None if USE_ALL_SPACES else spaces.get("prs") or next(iter(spaces.values()))
+    target = None if USE_ALL_SPACES else space_id
     try:
-        async with client.agents.session(space_id, all_spaces=USE_ALL_SPACES, provider=provider,
+        async with client.agents.session(target, all_spaces=USE_ALL_SPACES, provider=provider,
                                          user_email=email, timeout=90) as analyst:
             chunks: list[str] = []
             async for ev in analyst.ask(SYNTHESIS_PROMPT):
@@ -220,19 +246,20 @@ async def synthesize(client: MantisClient, spaces: dict[str, str], provider: Pro
 
 
 # ----------------------------------------------------------------------------- phase 4: brief
-def write_brief(spaces: dict[str, str], metrics: dict, synthesis: str) -> str:
+def write_brief(space_id: str, maps_by_name: dict[str, str], metrics: dict, synthesis: str) -> str:
     """assemble the weekly markdown briefing."""
+    host = os.getenv("MANTIS_HOST", os.getenv("MANTIS_BACKEND_HOST", ""))
     lines = [
         "# 🐜 Repo Radar — Weekly Mantis Briefing",
         f"_generated {time.strftime('%Y-%m-%d %H:%M')}_\n",
-        "## Portfolio",
+        f"**Space:** [/space/{ALIAS}]({host}/space/{ALIAS}) · `{space_id}`\n",
+        "## Maps",
     ]
-    for name, sid in spaces.items():
+    for name in maps_by_name:
         m = metrics.get(name, {})
         d = m.get("delta_since_last_run", 0)
-        lines.append(f"- **{name}** — {m.get('points', '?')} points "
-                     f"({d:+d} since last run) · `{sid}`")
-    lines += ["", "## Cross-space synthesis", synthesis or "_n/a_"]
+        lines.append(f"- **{name}** — {m.get('points', '?')} points ({d:+d} since last run)")
+    lines += ["", "## Synthesis", synthesis or "_n/a_"]
     chart = metrics.get("_chart")
     if chart:
         lines += ["", f"![contributors]({chart})"]
@@ -249,18 +276,19 @@ async def main():
     client = make_client()
     state = _load_state()
 
-    spaces = build_maps(client)
-    if not spaces:
+    space_id, maps_by_name = build_maps(client)
+    if not maps_by_name:
         print("no maps created — aborting.")
         return
-    state["spaces"] = spaces
+    state["space_id"] = space_id
+    state["maps"] = maps_by_name
 
-    metrics = analyze(client, spaces, state)
+    metrics = analyze(client, maps_by_name, state)
     state["metrics"] = {k: v for k, v in metrics.items() if not k.startswith("_")}
 
-    synthesis = await synthesize(client, spaces, provider)
+    synthesis = await synthesize(client, space_id, provider)
 
-    brief = write_brief(spaces, metrics, synthesis)
+    brief = write_brief(space_id, maps_by_name, metrics, synthesis)
     _save_state(state)
     print("\n" + "=" * 60 + "\n" + brief[:600])
 
