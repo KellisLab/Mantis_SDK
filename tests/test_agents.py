@@ -205,14 +205,23 @@ def test_default_provider_is_opencode():
 
 def test_session_auto_creates_space_state(client, transport):
     # scoping to a space should mint a space-state and thread it onto the ws url.
-    transport.queue = [{"id": "ss-123", "name": "SDK agent"}]  # space-state create response
+    # create() is get-or-create: it lists first (none exist), then POSTs.
+    transport.queue = [[], {"id": "ss-123", "name": "SDK agent"}]
     sess = client.agents.session("space1", provider=Provider.OpenCode, user_email="u@e.com",
                                  check_capability=False)
     assert sess.space_state_id == "ss-123"
     assert "space_state_id=ss-123" in sess._ws_url()
     assert "space_id=space1" in sess._ws_url()
     # it hit the cookie-auth space-state endpoint
-    assert transport.calls[0]["url"].endswith("/api/space-state/")
+    assert transport.calls[-1]["url"].endswith("/api/space-state/")
+
+
+def test_space_state_create_reuses_existing(client, transport):
+    # get-or-create: if a state with the same name exists, reuse it (no POST).
+    transport.queue = [[{"id": "ss-old", "name": "SDK agent"}]]
+    sid = client.space_states.create("space1", name="SDK agent")
+    assert sid == "ss-old"
+    assert len(transport.calls) == 1  # only the list GET, no create POST
 
 
 def test_session_skips_space_state_when_disabled(client, transport):

@@ -53,9 +53,12 @@ def github_prs(repos: list[str] = REPOS, state: str = "all") -> tuple[pd.DataFra
     for repo in repos:
         for pr in _paginate(f"{_API}/repos/{repo}/pulls", {"state": state, "sort": "updated"}):
             body = (pr.get("body") or "").strip()
+            # the semantic field must never be empty (the backend needs content to embed); many
+            # PRs have no body, so fall back to the title — which is the richest signal anyway.
+            summary = body or pr.get("title", "")
             rows.append({
                 "title": f"#{pr['number']} {pr['title']}",
-                "summary": body[:2000],
+                "summary": summary[:2000],
                 "repo": repo.split("/")[-1],
                 "author": pr["user"]["login"] if pr.get("user") else "unknown",
                 "state": "merged" if pr.get("merged_at") else pr.get("state", "open"),
@@ -82,9 +85,10 @@ def github_issues(repos: list[str] = REPOS, state: str = "all") -> tuple[pd.Data
             if "pull_request" in it:  # the issues endpoint includes PRs — drop them
                 continue
             body = (it.get("body") or "").strip()
+            summary = body or it.get("title", "")  # semantic field must be non-empty (see github_prs)
             rows.append({
                 "title": f"#{it['number']} {it['title']}",
-                "summary": body[:2000],
+                "summary": summary[:2000],
                 "repo": repo.split("/")[-1],
                 "author": it["user"]["login"] if it.get("user") else "unknown",
                 "state": it.get("state", "open"),

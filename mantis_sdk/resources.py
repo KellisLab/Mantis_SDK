@@ -366,7 +366,14 @@ class SpaceStatesResource(_BaseResource):
     endpoint the frontend uses)."""
 
     def create(self, space_id: str, name: str = "SDK") -> str:
-        """create a space-state for a space and return its id."""
+        """get-or-create a space-state for (space, name) and return its id.
+
+        space-state is unique on (space, name, created_by), so blindly POSTing the same name
+        twice raises an integrity error (500) on re-runs. we reuse an existing state of this
+        name when present — making the call idempotent."""
+        for existing in self.list(space_id):
+            if isinstance(existing, dict) and existing.get("name") == name and existing.get("id"):
+                return existing["id"]
         resp = self.http.request(
             "POST", "/api/space-state", json={"space_id": space_id, "name": name}
         )
@@ -376,6 +383,8 @@ class SpaceStatesResource(_BaseResource):
 
     def list(self, space_id: str) -> list[dict]:
         resp = self.http.request("GET", "/api/space-state", params={"space_id": space_id})
+        if isinstance(resp, dict):
+            return resp.get("states", resp.get("results", []))
         return resp if isinstance(resp, list) else (resp or [])
 
 
