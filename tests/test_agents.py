@@ -112,7 +112,9 @@ class _FakeWS:
 
     async def recv(self):
         if not self._script:
-            raise AssertionError("recv called after script exhausted")
+            # mimic a live socket going quiet — block forever so wait_for() times out.
+            import asyncio
+            await asyncio.Event().wait()
         return self._script.pop(0)
 
     async def close(self):
@@ -158,6 +160,22 @@ async def test_ask_raises_on_provider_mismatch(client):
     with pytest.raises(ProviderUnavailableError, match="fallen back"):
         async for _ in sess.ask("hi"):
             pass
+
+
+@pytest.mark.asyncio
+async def test_ask_finishes_on_final_text_when_complete_dropped(client):
+    # backend sometimes drops the chat_complete envelope (kafka→socket bridge); after the
+    # committed final answer we should finish on a short grace, not hang the full idle timeout.
+    script = [
+        {"type": "chat_messages", "content": "partial", "provider": "opencode"},
+        {"sender": "ai", "message": "the final answer", "partial": False, "provider": "opencode"},
+        # no chat_complete — socket then goes silent (FakeWS blocks)
+    ]
+    sess = _session(client, script=script)
+    sess.final_grace = 0.05  # tiny grace so the test is fast
+    texts = [ev.text for ev in [e async for e in sess.ask("hi")] if ev.type == "text"]
+    assert "the final answer" in "".join(texts)
+    assert sess.result().text  # assembled despite no terminal event
 
 
 @pytest.mark.asyncio

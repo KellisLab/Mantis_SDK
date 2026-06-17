@@ -228,10 +228,20 @@ class AgentSession:
 
         # idle timeout: a long claude_code/opencode run can take minutes, but the backend sends
         # heartbeats, so we bound on SILENCE (no event for `self.timeout`s), not total duration.
+        # final-answer grace: the backend sends the committed final text (a non-partial ai frame)
+        # and *then* a chat_complete envelope — but that envelope is delivered over a kafka→socket
+        # bridge that occasionally drops it, leaving us blocked on recv() for the full idle
+        # timeout AFTER the answer already arrived. so once we've seen the final text, we wait
+        # only `final_grace`s for a terminal event, then finish cleanly.
+        saw_final_text = False
+        final_grace = getattr(self, "final_grace", 8.0)
         while True:
+            wait = final_grace if saw_final_text else self.timeout
             try:
-                raw = await asyncio.wait_for(self._ws.recv(), timeout=self.timeout)
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=wait)
             except asyncio.TimeoutError as exc:
+                if saw_final_text:
+                    return  # answer already delivered; the terminal envelope just didn't arrive
                 raise AgentRunError(
                     f"agent run idle for {self.timeout}s with no event (backend sends heartbeats; "
                     f"a longer idle timeout or a stuck run?)"
@@ -255,6 +265,9 @@ class AgentSession:
             yield event
             if event.is_terminal:
                 return
+            # a committed final answer frame ({sender:ai, partial:false}) → start the grace clock.
+            if event.type == "text" and data.get("sender") == "ai" and data.get("partial") is False:
+                saw_final_text = True
 
     def result(self) -> AgentResult:
         """assemble the full assistant text + outcome from the events seen so far."""
