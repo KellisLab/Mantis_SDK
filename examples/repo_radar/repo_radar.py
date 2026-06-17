@@ -88,12 +88,14 @@ def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
         "prs": lambda: sources.github_prs(),
         "issues": lambda: sources.github_issues(),
         "authors": lambda: sources.github_authors(),
+        "code": lambda: sources.github_code(),
         "notes": lambda: sources.meeting_notes(),
     }
     # friendly per-map titles (without this the backend names every map "Untitled Map").
     map_titles = {
         "prs": "Open Pull Requests", "issues": "Open Issues",
-        "authors": "Contributors (all-time)", "notes": "Meeting Notes",
+        "authors": "Contributors (all-time)", "code": "Codebase",
+        "notes": "Meeting Notes",
     }
     maps: dict[str, str] = {}
     cap = int(os.getenv("REPO_RADAR_CAP", "0"))  # optional row cap for bounded/demo runs
@@ -190,7 +192,6 @@ def analyze(client: MantisClient, maps_by_name: dict[str, str], state: dict) -> 
                     Path(chart_png).write_bytes(png)
                     print(f"  [chart] saved {chart_png} ({len(png)} bytes)")
 
-            nb.checkpoint(f"radar-{name}-{int(time.time())}")
         except MantisError as exc:
             print(f"  [fail] {name}: {exc}  (needs the notebook kernel stack)")
     metrics["_chart"] = chart_png

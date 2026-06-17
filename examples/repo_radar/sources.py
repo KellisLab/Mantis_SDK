@@ -209,6 +209,69 @@ def meeting_notes(gdoc_id: str = GDOC_ID) -> tuple[pd.DataFrame, dict]:
     return df, types
 
 
+# ----------------------------------------------------------------------------- code files
+_CODE_EXTENSIONS = {
+    ".py", ".ts", ".tsx", ".js", ".jsx", ".yml", ".yaml", ".toml",
+    ".sh", ".sql", ".html", ".css", ".scss", ".json", ".md",
+    ".dockerfile", ".cfg", ".ini", ".env.example",
+}
+_SKIP_DIRS = {"node_modules", "__pycache__", ".git", "venv", "dist", "build", ".next", "migrations"}
+_MAX_SNIPPET = 1500  # chars of file content to embed (keeps token cost bounded)
+
+
+def github_code(repos: list[str] = REPOS, branch: str = "main") -> tuple[pd.DataFrame, dict]:
+    """Source-tree walk of both repos via the Git Trees API — one point per file.
+
+    Each file becomes a point whose semantic content is the first ~1500 chars of its source
+    (enough for the imports/docstring/class signature), and whose facets capture the path
+    structure so you can explore by directory, extension, and repo."""
+    rows = []
+    for repo in repos:
+        tree_url = f"{_API}/repos/{repo}/git/trees/{branch}?recursive=1"
+        resp = requests.get(tree_url, headers=_gh_headers(), timeout=30)
+        resp.raise_for_status()
+        tree = resp.json().get("tree", [])
+
+        for entry in tree:
+            if entry.get("type") != "blob":
+                continue
+            path = entry["path"]
+            parts = path.split("/")
+            if any(d in _SKIP_DIRS for d in parts[:-1]):
+                continue
+            ext = os.path.splitext(path)[1].lower()
+            # include Dockerfiles (no extension match but filename starts with Dockerfile)
+            basename = parts[-1].lower()
+            if ext not in _CODE_EXTENSIONS and not basename.startswith("dockerfile"):
+                continue
+
+            # fetch raw content (bounded by _MAX_SNIPPET)
+            raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+            try:
+                raw_resp = requests.get(raw_url, headers=_gh_headers(), timeout=10)
+                raw_resp.raise_for_status()
+                snippet = raw_resp.text[:_MAX_SNIPPET]
+            except Exception:
+                snippet = f"(file at {path})"
+            time.sleep(0.05)  # stay well under rate limits
+
+            directory = "/".join(parts[:-1]) or "."
+            rows.append({
+                "title": path,
+                "content": snippet,
+                "repo": repo.split("/")[-1],
+                "directory": directory,
+                "extension": ext or basename,
+                "size": entry.get("size", 0),
+            })
+    df = pd.DataFrame(rows)
+    types = {
+        "title": "title", "content": "semantic", "repo": "categoric",
+        "directory": "categoric", "extension": "categoric", "size": "numeric",
+    }
+    return df, types
+
+
 if __name__ == "__main__":
     # standalone smoke: print row counts for each source (proves the pullers work).
     nb, _ = meeting_notes()
@@ -217,7 +280,8 @@ if __name__ == "__main__":
         prs, _ = github_prs()
         iss, _ = github_issues()
         auth, _ = github_authors()
+        code, _ = github_code()
         print(f"github_prs(open): {len(prs)} | github_issues(open): {len(iss)} | "
-              f"authors(all-time): {len(auth)}")
+              f"authors(all-time): {len(auth)} | code(files): {len(code)}")
     else:
         print("set GITHUB_TOKEN to smoke-test the github pullers")
