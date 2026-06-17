@@ -1,9 +1,9 @@
 """data sources for the Mantis-on-Mantis demo (repo_radar).
 
 pulls four real corpora into pandas DataFrames ready for client.spaces.create():
-  - github_prs / github_issues  : open + recent PRs/issues across both repos (GitHub REST)
-  - github_authors              : per-author contribution rollup from local git history
-  - meeting_notes               : the Mantis meeting-notes Google Doc, split into dated entries
+  - github_prs / github_issues  : ALL active (open) PRs/issues across both repos (GitHub REST)
+  - github_authors              : everyone who ever committed to either repo (GitHub REST)
+  - meeting_notes               : the Mantis meeting-notes Google Doc, one point per segment
 
 each returns (df, data_types) so the caller just hands it to the SDK. no SDK imports here —
 this is plain ingestion so it can be tested / run standalone."""
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import time
 from typing import Any
 
@@ -47,11 +46,12 @@ def _paginate(url: str, params: dict[str, Any], max_pages: int = 5) -> list[dict
 
 
 # ----------------------------------------------------------------------------- github PRs
-def github_prs(repos: list[str] = REPOS, state: str = "all") -> tuple[pd.DataFrame, dict]:
-    """open + recent PRs across the repos. title is semantic; state/repo/author categoric."""
+def github_prs(repos: list[str] = REPOS, state: str = "open") -> tuple[pd.DataFrame, dict]:
+    """ALL currently-active (open) PRs across the repos, each with its open/update dates.
+    title is semantic; repo/author/labels categoric; created_at/updated_at are date facets."""
     rows = []
     for repo in repos:
-        for pr in _paginate(f"{_API}/repos/{repo}/pulls", {"state": state, "sort": "updated"}):
+        for pr in _paginate(f"{_API}/repos/{repo}/pulls", {"state": state, "sort": "created", "direction": "desc"}):
             body = (pr.get("body") or "").strip()
             # the semantic field must never be empty (the backend needs content to embed); many
             # PRs have no body, so fall back to the title — which is the richest signal anyway.
@@ -61,27 +61,28 @@ def github_prs(repos: list[str] = REPOS, state: str = "all") -> tuple[pd.DataFra
                 "summary": summary[:2000],
                 "repo": repo.split("/")[-1],
                 "author": pr["user"]["login"] if pr.get("user") else "unknown",
-                "state": "merged" if pr.get("merged_at") else pr.get("state", "open"),
-                "draft": str(bool(pr.get("draft"))),
+                "state": "draft" if pr.get("draft") else "open",
                 "labels": ", ".join(lbl["name"] for lbl in pr.get("labels", [])) or "none",
                 "created_at": (pr.get("created_at") or "")[:10],
+                "updated_at": (pr.get("updated_at") or "")[:10],
                 "url": pr.get("html_url", ""),
             })
     df = pd.DataFrame(rows)
     types = {
         "title": "title", "summary": "semantic", "repo": "categoric", "author": "categoric",
-        "state": "categoric", "draft": "categoric", "labels": "categoric",
-        "created_at": "date", "url": "links",
+        "state": "categoric", "labels": "categoric",
+        "created_at": "date", "updated_at": "date", "url": "links",
     }
     return df, types
 
 
 # --------------------------------------------------------------------------- github issues
-def github_issues(repos: list[str] = REPOS, state: str = "all") -> tuple[pd.DataFrame, dict]:
-    """issues only (the issues endpoint returns PRs too; we filter them out)."""
+def github_issues(repos: list[str] = REPOS, state: str = "open") -> tuple[pd.DataFrame, dict]:
+    """ALL currently-active (open) issues across the repos, each with its open/update dates.
+    the issues endpoint returns PRs too; we filter them out."""
     rows = []
     for repo in repos:
-        for it in _paginate(f"{_API}/repos/{repo}/issues", {"state": state, "sort": "updated"}):
+        for it in _paginate(f"{_API}/repos/{repo}/issues", {"state": state, "sort": "created", "direction": "desc"}):
             if "pull_request" in it:  # the issues endpoint includes PRs — drop them
                 continue
             body = (it.get("body") or "").strip()
@@ -95,104 +96,128 @@ def github_issues(repos: list[str] = REPOS, state: str = "all") -> tuple[pd.Data
                 "labels": ", ".join(lbl["name"] for lbl in it.get("labels", [])) or "none",
                 "comments": it.get("comments", 0),
                 "created_at": (it.get("created_at") or "")[:10],
+                "updated_at": (it.get("updated_at") or "")[:10],
                 "url": it.get("html_url", ""),
             })
     df = pd.DataFrame(rows)
     types = {
         "title": "title", "summary": "semantic", "repo": "categoric", "author": "categoric",
         "state": "categoric", "labels": "categoric", "comments": "numeric",
-        "created_at": "date", "url": "links",
+        "created_at": "date", "updated_at": "date", "url": "links",
     }
     return df, types
 
 
 # ------------------------------------------------------------------------- git author rollup
-def github_authors(repo_path: str, since_days: int = 90) -> tuple[pd.DataFrame, dict]:
-    """per-author contribution rollup from the LOCAL git clone (no API needed).
-    one point per author; commit count is numeric so the map can size/color by activity.
+def github_authors(repos: list[str] = REPOS, max_commit_pages: int = 10) -> tuple[pd.DataFrame, dict]:
+    """EVERYONE who has ever committed to either repo, via the GitHub API (no local clone).
 
-    raises ValueError (not CalledProcessError) if repo_path isn't a git repo, so the caller's
-    'one source failed, skip it' handling kicks in cleanly."""
-    import os.path
-
-    fmt = "%an\t%s"
-    if not os.path.isdir(os.path.join(repo_path, ".git")):
-        raise ValueError(
-            f"MANTISAPI_PATH={repo_path!r} is not a git checkout — set it to your local "
-            f"MantisAPI clone (e.g. ~/Mantis/MantisAPI)."
-        )
-    proc = subprocess.run(
-        ["git", "-C", repo_path, "log", f"--since={since_days} days ago", f"--format={fmt}"],
-        capture_output=True, text=True, check=False,
-    )
-    if proc.returncode != 0:
-        raise ValueError(f"git log failed in {repo_path!r}: {proc.stderr.strip()[:200]}")
-    out = proc.stdout.strip().splitlines()
-
+    the /contributors endpoint is the authoritative all-time roster (so the list is complete);
+    a bounded pass over /commits enriches each author with what they actually worked on and
+    their latest commit date. authors past the commit cap still appear (from /contributors),
+    just with a generic summary — we log when that truncation happens so it isn't silent."""
     agg: dict[str, dict] = {}
-    for line in out:
-        if "\t" not in line:
-            continue
-        author, subject = line.split("\t", 1)
-        a = agg.setdefault(author, {"commits": 0, "subjects": []})
-        a["commits"] += 1
-        a["subjects"].append(subject)
 
-    rows = [
-        {
-            "title": author,
-            "summary": " • ".join(d["subjects"][:40]),  # what they actually worked on
+    def _row(login: str) -> dict:
+        return agg.setdefault(login, {"commits": 0, "repos": set(), "subjects": [], "last": ""})
+
+    # 1) authoritative all-time roster + total contribution counts.
+    for repo in repos:
+        for c in _paginate(f"{_API}/repos/{repo}/contributors", {}):
+            login = c.get("login") or "unknown"
+            r = _row(login)
+            r["commits"] += int(c.get("contributions", 0))
+            r["repos"].add(repo.split("/")[-1])
+
+    # 2) enrich with commit subjects + latest date (bounded; union of authors is already complete).
+    enriched = set()
+    for repo in repos:
+        commits = _paginate(f"{_API}/repos/{repo}/commits", {}, max_pages=max_commit_pages)
+        if len(commits) >= max_commit_pages * 100:
+            print(f"  [authors] note: /commits for {repo} hit the {max_commit_pages*100}-commit "
+                  f"cap — older subjects omitted (roster stays complete via /contributors)")
+        for c in commits:
+            login = (c.get("author") or {}).get("login") or (c.get("commit", {}).get("author", {}).get("name") or "unknown")
+            r = _row(login)
+            msg = (c.get("commit", {}).get("message") or "").splitlines()[0] if c.get("commit") else ""
+            if msg and len(r["subjects"]) < 40:
+                r["subjects"].append(msg)
+            date = (c.get("commit", {}).get("author", {}).get("date") or "")[:10]
+            if date and date > r["last"]:
+                r["last"] = date
+            enriched.add(login)
+
+    rows = []
+    for login, d in agg.items():
+        repos_str = ", ".join(sorted(d["repos"])) or "—"
+        summary = " • ".join(d["subjects"]) if d["subjects"] else f"{login} — {d['commits']} commits to {repos_str}"
+        rows.append({
+            "title": login,
+            "summary": summary,
             "commits": d["commits"],
-            "author": author,
-        }
-        for author, d in agg.items()
-    ]
+            "repos": repos_str,
+            "author": login,
+            "last_commit": d["last"],
+        })
     df = pd.DataFrame(rows).sort_values("commits", ascending=False) if rows else pd.DataFrame(rows)
-    types = {"title": "title", "summary": "semantic", "commits": "numeric", "author": "categoric"}
+    types = {"title": "title", "summary": "semantic", "commits": "numeric",
+             "repos": "categoric", "author": "categoric", "last_commit": "date"}
     return df, types
 
 
 # ----------------------------------------------------------------------------- meeting notes
-def meeting_notes(gdoc_id: str = GDOC_ID) -> tuple[pd.DataFrame, dict]:
-    """the Mantis meeting-notes Google Doc, split into one point per dated meeting.
+# a meeting heading like "2026.06.10 Wed5pm Mantis Leadership".
+_MEETING_HEADING = re.compile(r"^(20\d\d\.\d\d\.\d\d)\s+\S+\s+(.*)$", re.MULTILINE)
+# a numbered segment line: "7. Topic Title - Speaker A, Speaker B (0:14:19): body…".
+_SEGMENT = re.compile(
+    r"^\s*\d+\.\s+(?P<title>.+?)\s+-\s+(?P<speakers>[^()]+?)\s+\((?P<ts>\d+:\d{2}(?::\d{2})?)\):\s+(?P<body>.+)$",
+    re.MULTILINE,
+)
 
-    the doc uses headings like '2026.06.10 Wed5pm Mantis Leadership' — we split on those
-    and treat the body as the semantic field, the topic + date as facets."""
+
+def meeting_notes(gdoc_id: str = GDOC_ID) -> tuple[pd.DataFrame, dict]:
+    """the Mantis meeting-notes Google Doc as ONE POINT PER SPEAKER SEGMENT.
+
+    each meeting is a dated heading followed by numbered segments of the form
+    'N. Title - Speakers (timestamp): discussion…'. we emit one row per segment so the map
+    captures who said what, when — the body is semantic; speakers/meeting/date are facets."""
     url = f"https://docs.google.com/document/d/{gdoc_id}/export?format=txt"
     text = requests.get(url, timeout=30).text
 
-    # split on date-prefixed headings: 2026.06.10 ...
-    heading = re.compile(r"^(20\d\d\.\d\d\.\d\d)\s+(\w+)\s+(.*)$", re.MULTILINE)
-    matches = list(heading.finditer(text))
+    meetings = list(_MEETING_HEADING.finditer(text))
     rows = []
-    for i, m in enumerate(matches):
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        body = text[start:end].strip()
-        date_dot, topic = m.group(1), m.group(3).strip()  # group(2) is the weekday, unused
-        # topic looks like "Mantis Leadership" / "Mantis Agents Embeddings" — last word is a useful tag
-        tag = topic.replace("Mantis", "").strip().split()[0] if topic.replace("Mantis", "").strip() else "General"
-        rows.append({
-            "title": f"{date_dot} {topic}"[:120],
-            "summary": body[:4000],
-            "topic": tag,
-            "meeting": topic,
-            "date": date_dot.replace(".", "-"),
-        })
+    for i, m in enumerate(meetings):
+        start, end = m.end(), (meetings[i + 1].start() if i + 1 < len(meetings) else len(text))
+        date_dot, meeting = m.group(1), m.group(2).strip()
+        date = date_dot.replace(".", "-")
+        for seg in _SEGMENT.finditer(text[start:end]):
+            speakers = ", ".join(s.strip() for s in seg.group("speakers").split(","))
+            primary = speakers.split(",")[0].strip() if speakers else "unknown"
+            rows.append({
+                "title": f"{date} · {seg.group('title').strip()}"[:120],
+                "summary": seg.group("body").strip()[:4000],
+                "speakers": speakers,
+                "primary_speaker": primary,
+                "meeting": meeting,
+                "timestamp": seg.group("ts"),
+                "date": date,
+            })
     df = pd.DataFrame(rows)
-    types = {"title": "title", "summary": "semantic", "topic": "categoric",
-             "meeting": "categoric", "date": "date"}
+    types = {"title": "title", "summary": "semantic", "speakers": "categoric",
+             "primary_speaker": "categoric", "meeting": "categoric",
+             "timestamp": "categoric", "date": "date"}
     return df, types
 
 
 if __name__ == "__main__":
     # standalone smoke: print row counts for each source (proves the pullers work).
-    os.environ.setdefault("GITHUB_TOKEN", "")
     nb, _ = meeting_notes()
-    print(f"meeting_notes: {len(nb)} dated entries")
+    print(f"meeting_notes: {len(nb)} speaker segments")
     if os.environ.get("GITHUB_TOKEN"):
         prs, _ = github_prs()
         iss, _ = github_issues()
-        print(f"github_prs: {len(prs)} | github_issues: {len(iss)}")
-    auth, _ = github_authors(os.environ.get("MANTISAPI_PATH", "."))
-    print(f"github_authors: {len(auth)} contributors")
+        auth, _ = github_authors()
+        print(f"github_prs(open): {len(prs)} | github_issues(open): {len(iss)} | "
+              f"authors(all-time): {len(auth)}")
+    else:
+        print("set GITHUB_TOKEN to smoke-test the github pullers")

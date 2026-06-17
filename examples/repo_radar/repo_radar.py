@@ -18,8 +18,7 @@ Env:
   MANTIS_HOST / MANTIS_BACKEND_HOST   (default localhost:3000 / :8000)
   MANTIS_COOKIE                        session cookie
   MANTIS_USER_EMAIL                    (for the agent runtime)
-  GITHUB_TOKEN                         to pull the private repos
-  MANTISAPI_PATH / MANTIS_PATH         local clones (for git author rollup)
+  GITHUB_TOKEN                         to pull the private repos (PRs, issues, authors)
 """
 from __future__ import annotations
 
@@ -88,8 +87,13 @@ def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
     builders = {
         "prs": lambda: sources.github_prs(),
         "issues": lambda: sources.github_issues(),
-        "authors": lambda: sources.github_authors(os.getenv("MANTISAPI_PATH", ".")),
+        "authors": lambda: sources.github_authors(),
         "notes": lambda: sources.meeting_notes(),
+    }
+    # friendly per-map titles (without this the backend names every map "Untitled Map").
+    map_titles = {
+        "prs": "Open Pull Requests", "issues": "Open Issues",
+        "authors": "Contributors (all-time)", "notes": "Meeting Notes",
     }
     maps: dict[str, str] = {}
     cap = int(os.getenv("REPO_RADAR_CAP", "0"))  # optional row cap for bounded/demo runs
@@ -106,6 +110,7 @@ def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
             handle = client.spaces.create(
                 f"Mantis Radar — {name}", df, data_types,
                 space_id=space_id, map_id=map_id,  # same space + stable map id ⇒ idempotent refresh
+                map_name=map_titles[name],  # so the map isn't named "Untitled Map"
                 show_progress=False,
                 on_progress=lambda p, m, t, n=name: print(f"    {n}: {p:3d}% {m or ''}", end="\r"),
             )

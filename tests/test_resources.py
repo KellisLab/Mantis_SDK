@@ -106,7 +106,21 @@ def test_create_passes_explicit_space_and_map_id(client, transport):
     transport.queue = [{"map_id": "m-fixed", "space_id": "s-fixed"}]
     df = pd.DataFrame({"A": ["x", "y"], "B": ["p", "q"]})
     client.spaces.create("t", df, {"A": DataType.Title, "B": DataType.Semantic},
-                         space_id="s-fixed", map_id="m-fixed", wait=False)
+                         space_id="s-fixed", map_id="m-fixed", map_name="My Map", wait=False)
     form = transport.calls[0]["kwargs"]["data"]
     assert form["space_id"] == "s-fixed"
     assert form["map_id"] == "m-fixed"
+    assert form["map_name"] == "My Map"
+
+
+def test_create_defaults_map_name_to_space_name(client, transport):
+    # without an explicit map_name the backend names the map "Untitled Map"; we default it to
+    # the space name so a single-map space gets a sensible label.
+    import pandas as pd
+
+    from mantis_sdk import DataType
+
+    transport.queue = [{"map_id": "m1", "space_id": "s1"}]
+    df = pd.DataFrame({"A": ["x"], "B": ["p"]})
+    client.spaces.create("My Space", df, {"A": DataType.Title, "B": DataType.Semantic}, wait=False)
+    assert transport.calls[0]["kwargs"]["data"]["map_name"] == "My Space"

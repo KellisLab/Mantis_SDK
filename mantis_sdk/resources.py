@@ -140,6 +140,7 @@ class SpacesResource(_BaseResource):
         stall_timeout: float | None = 600.0,
         space_id: str | None = None,
         map_id: str | None = None,
+        map_name: str | None = None,
     ) -> SpaceHandle:
         """create a space from a DataFrame or csv path, then (by default) poll to completion.
 
@@ -149,7 +150,10 @@ class SpacesResource(_BaseResource):
         pass an explicit space_id to add this map to an EXISTING space (the backend
         get_or_creates the space, so reusing a space_id is idempotent). pass a stable map_id
         to refresh that map in place on re-runs (the backend updates the map of that id rather
-        than creating a new one) — this is how you keep one space with a fixed set of maps."""
+        than creating a new one) — this is how you keep one space with a fixed set of maps.
+
+        map_name names the map; without it the backend falls back to "Untitled Map". defaults
+        to space_name so a single-map space gets a sensible label out of the box."""
         buffer, columns, file_extension = self._load_data(data)
 
         data_types_sanitized = self._sanitize_data_types(columns, data_types)
@@ -170,6 +174,7 @@ class SpacesResource(_BaseResource):
         form_data = {
             "space_id": space_id,
             "space_name": space_name,
+            "map_name": map_name or space_name,  # backend defaults to "Untitled Map" if omitted
             "is_public": str(str(privacy_level) == str(SpacePrivacy.PUBLIC)).lower(),
             "red_model": str(reducer),
             "custom_models": json.dumps(custom_models),
