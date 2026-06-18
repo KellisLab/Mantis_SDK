@@ -134,14 +134,15 @@ def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
 
 
 # ----------------------------------------------------------- phase 2: notebook delta analysis
-DELTA_CODE = """
-# delta + velocity analysis over this map's points (runs inside the map's kernel)
+DELTA_CODE_TEMPLATE = """\
+# delta + velocity analysis — find THIS map by id in the kernel's maps list
 import collections, json
-pts = maps[0].points
-rows = [getattr(p, 'metadata', {}) or {} for p in pts]
+_target = '{map_id}'
+_m = next((m for m in maps if m.map_id == _target), None) or maps[0]
+pts = _m.points
+rows = [getattr(p, 'metadata', {{}}) or {{}} for p in pts]
 n = len(pts)
 
-# velocity by author and state, derived from the point metadata
 authors = collections.Counter(r.get('author', 'unknown') for r in rows)
 states  = collections.Counter(r.get('state', r.get('topic', 'n/a')) for r in rows)
 
@@ -150,12 +151,14 @@ print("TOP_AUTHORS", json.dumps(authors.most_common(8)))
 print("STATE_BREAKDOWN", json.dumps(dict(states)))
 """
 
-CHART_CODE = """
+CHART_CODE_TEMPLATE = """\
 import collections
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-rows = [getattr(p, 'metadata', {}) or {} for p in maps[0].points]
+_target = '{map_id}'
+_m = next((m for m in maps if m.map_id == _target), None) or maps[0]
+rows = [getattr(p, 'metadata', {{}}) or {{}} for p in _m.points]
 c = collections.Counter(r.get('author', 'unknown') for r in rows).most_common(10)
 labels = [a for a, _ in c]; vals = [v for _, v in c]
 plt.figure(figsize=(9, 4))
@@ -175,7 +178,7 @@ def analyze(client: MantisClient, maps_by_name: dict[str, str], state: dict) -> 
         try:
             nb = client.notebooks.from_map(map_id, name=f"radar-{name}",
                                            user_id=os.getenv("MANTIS_USER_EMAIL"))
-            cell = nb.add_cell(DELTA_CODE)
+            cell = nb.add_cell(DELTA_CODE_TEMPLATE.format(map_id=map_id))
             cell.execute(timeout=300)
             text = cell.text
             pts = _grab_int(text, "POINTS")
@@ -185,7 +188,7 @@ def analyze(client: MantisClient, maps_by_name: dict[str, str], state: dict) -> 
 
             # one chart from the authors map for the brief
             if name == "authors" and chart_png is None:
-                chart = nb.add_cell(CHART_CODE)
+                chart = nb.add_cell(CHART_CODE_TEMPLATE.format(map_id=map_id))
                 chart.execute(timeout=300)
                 png = chart.image_png_bytes()
                 if png:
