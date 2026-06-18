@@ -88,8 +88,8 @@ def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
         "prs": lambda: sources.github_prs(),
         "issues": lambda: sources.github_issues(),
         "authors": lambda: sources.github_authors(),
-        "code": lambda: sources.github_code(),
         "notes": lambda: sources.meeting_notes(),
+        "code": lambda: sources.github_code(),  # largest — run last so others don't queue behind it
     }
     # friendly per-map titles (without this the backend names every map "Untitled Map").
     map_titles = {
@@ -114,6 +114,7 @@ def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
                 space_id=space_id, map_id=map_id,  # same space + stable map id ⇒ idempotent refresh
                 map_name=map_titles[name],  # so the map isn't named "Untitled Map"
                 show_progress=False,
+                stall_timeout=1800.0,  # code map can take a while for large file sets
                 on_progress=lambda p, m, t, n=name: print(f"    {n}: {p:3d}% {m or ''}", end="\r"),
             )
             maps[name] = handle.map_id
@@ -175,7 +176,7 @@ def analyze(client: MantisClient, maps_by_name: dict[str, str], state: dict) -> 
             nb = client.notebooks.from_map(map_id, name=f"radar-{name}",
                                            user_id=os.getenv("MANTIS_USER_EMAIL"))
             cell = nb.add_cell(DELTA_CODE)
-            cell.execute(timeout=120)
+            cell.execute(timeout=300)
             text = cell.text
             pts = _grab_int(text, "POINTS")
             delta = pts - prev.get(name, {}).get("points", pts)
@@ -185,7 +186,7 @@ def analyze(client: MantisClient, maps_by_name: dict[str, str], state: dict) -> 
             # one chart from the authors map for the brief
             if name == "authors" and chart_png is None:
                 chart = nb.add_cell(CHART_CODE)
-                chart.execute(timeout=120)
+                chart.execute(timeout=300)
                 png = chart.image_png_bytes()
                 if png:
                     chart_png = "/tmp/repo_radar_contributors.png"
@@ -247,8 +248,8 @@ async def synthesize(client: MantisClient, space_id: str, provider: Provider) ->
                     print(f"\n  [agent run reported failure] {ev.text}", flush=True)
             print()
             return analyst.result().text or "".join(chunks) or "_(agent returned no text — check model credentials)_"
-    except MantisError as exc:
-        return f"_(agent synthesis unavailable: {exc})_"
+    except Exception as exc:
+        return f"_(agent synthesis unavailable: {type(exc).__name__}: {exc})_"
 
 
 # ----------------------------------------------------------------------------- phase 4: brief

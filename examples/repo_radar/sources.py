@@ -210,22 +210,22 @@ def meeting_notes(gdoc_id: str = GDOC_ID) -> tuple[pd.DataFrame, dict]:
 
 
 # ----------------------------------------------------------------------------- code files
-_CODE_EXTENSIONS = {
-    ".py", ".ts", ".tsx", ".js", ".jsx", ".yml", ".yaml", ".toml",
-    ".sh", ".sql", ".html", ".css", ".scss", ".json", ".md",
-    ".dockerfile", ".cfg", ".ini", ".env.example",
+_CODE_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx"}
+_SKIP_DIRS = {
+    "node_modules", "__pycache__", ".git", "venv", "dist", "build", ".next",
+    "migrations", "tests", "test", "__tests__", "fixtures", ".pytest_cache",
 }
-_SKIP_DIRS = {"node_modules", "__pycache__", ".git", "venv", "dist", "build", ".next", "migrations"}
-_MAX_SNIPPET = 1500  # chars of file content to embed (keeps token cost bounded)
+_MAX_SNIPPET = 1200  # chars of file content to embed
+_MAX_FILES = 800  # cap total files to keep embedding time reasonable
 
 
 def github_code(repos: list[str] = REPOS, branch: str = "main") -> tuple[pd.DataFrame, dict]:
-    """Source-tree walk of both repos via the Git Trees API — one point per file.
+    """Source-tree walk of both repos via the Git Trees API — one point per source file.
 
-    Each file becomes a point whose semantic content is the first ~1500 chars of its source
-    (enough for the imports/docstring/class signature), and whose facets capture the path
-    structure so you can explore by directory, extension, and repo."""
-    rows = []
+    Focuses on Python/TS/JS source files (not configs), sorted by size descending and capped
+    at _MAX_FILES to keep embedding time under ~10 minutes. Each point's semantic content is
+    the first ~1200 chars (imports + top-level signatures)."""
+    candidates = []
     for repo in repos:
         tree_url = f"{_API}/repos/{repo}/git/trees/{branch}?recursive=1"
         resp = requests.get(tree_url, headers=_gh_headers(), timeout=30)
@@ -240,30 +240,38 @@ def github_code(repos: list[str] = REPOS, branch: str = "main") -> tuple[pd.Data
             if any(d in _SKIP_DIRS for d in parts[:-1]):
                 continue
             ext = os.path.splitext(path)[1].lower()
-            # include Dockerfiles (no extension match but filename starts with Dockerfile)
-            basename = parts[-1].lower()
-            if ext not in _CODE_EXTENSIONS and not basename.startswith("dockerfile"):
+            if ext not in _CODE_EXTENSIONS:
                 continue
+            # skip test files by name
+            basename = parts[-1].lower()
+            if basename.startswith("test_") or basename.endswith("_test.py") or basename.endswith(".test.ts") or basename.endswith(".test.tsx"):
+                continue
+            candidates.append((repo, path, parts, ext, entry.get("size", 0)))
 
-            # fetch raw content (bounded by _MAX_SNIPPET)
-            raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
-            try:
-                raw_resp = requests.get(raw_url, headers=_gh_headers(), timeout=10)
-                raw_resp.raise_for_status()
-                snippet = raw_resp.text[:_MAX_SNIPPET]
-            except Exception:
-                snippet = f"(file at {path})"
-            time.sleep(0.05)  # stay well under rate limits
+    # prioritize larger files (more substance) and cap
+    candidates.sort(key=lambda c: c[4], reverse=True)
+    candidates = candidates[:_MAX_FILES]
 
-            directory = "/".join(parts[:-1]) or "."
-            rows.append({
-                "title": path,
-                "content": snippet,
-                "repo": repo.split("/")[-1],
-                "directory": directory,
-                "extension": ext or basename,
-                "size": entry.get("size", 0),
-            })
+    rows = []
+    for repo, path, parts, ext, size in candidates:
+        raw_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+        try:
+            raw_resp = requests.get(raw_url, headers=_gh_headers(), timeout=10)
+            raw_resp.raise_for_status()
+            snippet = raw_resp.text[:_MAX_SNIPPET]
+        except Exception:
+            snippet = f"(file at {path})"
+        time.sleep(0.02)
+
+        directory = "/".join(parts[:-1]) or "."
+        rows.append({
+            "title": path,
+            "content": snippet,
+            "repo": repo.split("/")[-1],
+            "directory": directory,
+            "extension": ext,
+            "size": size,
+        })
     df = pd.DataFrame(rows)
     types = {
         "title": "title", "content": "semantic", "repo": "categoric",
