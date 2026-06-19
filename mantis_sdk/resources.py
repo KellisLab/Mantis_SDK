@@ -393,6 +393,35 @@ class SpaceStatesResource(_BaseResource):
         return resp if isinstance(resp, list) else (resp or [])
 
 
+class FeaturedChatResource(_BaseResource):
+    """pin a conversation to a space so it auto-loads for visitors."""
+
+    def get(self, space_id: str) -> dict:
+        """get the featured chat for a space. returns {featured_chat_id, user_chat_session_id}."""
+        return self.http.request("GET", "/api/featured-chat", params={"space_id": space_id})
+
+    def set(self, space_id: str, chat_id: str) -> dict:
+        """pin a chat as the space's featured conversation. clears all user copies."""
+        return self.http.request(
+            "PUT", "/api/featured-chat", json={"space_id": space_id, "chat_id": chat_id}
+        )
+
+    def clear(self, space_id: str) -> dict:
+        """remove the featured chat from a space."""
+        return self.http.request(
+            "DELETE", "/api/featured-chat", params={"space_id": space_id}
+        )
+
+    def clone(self, space_id: str) -> str:
+        """clone the featured chat for the current user. returns the new session_id."""
+        resp = self.http.request(
+            "POST", "/api/featured-chat/clone", json={"space_id": space_id}
+        )
+        if not isinstance(resp, dict) or "chat_session_id" not in resp:
+            raise MantisError(f"featured chat clone failed: {resp}")
+        return resp["chat_session_id"]
+
+
 class AliasesResource(_BaseResource):
     """human-friendly URL aliases for spaces (/space/<alias> resolves to the space).
 

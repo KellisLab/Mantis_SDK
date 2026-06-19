@@ -23,6 +23,7 @@ from .notebook import NotebooksResource
 from .resources import (
     AliasesResource,
     AnnotationsResource,
+    FeaturedChatResource,
     MapsResource,
     SearchResource,
     SpaceHandle,
@@ -70,6 +71,7 @@ class MantisClient:
         self.maps = MapsResource(self)
         self.space_states = SpaceStatesResource(self)
         self.aliases = AliasesResource(self)
+        self.featured_chat = FeaturedChatResource(self)
         self.annotations = AnnotationsResource(self)
         self.search = SearchResource(self)
         self.notebooks = NotebooksResource(self)

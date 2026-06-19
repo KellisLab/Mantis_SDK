@@ -228,9 +228,11 @@ SYNTHESIS_PROMPT = (
 )
 
 
-async def synthesize(client: MantisClient, space_id: str, provider: Provider) -> str:
-    """run an agent to synthesize a briefing. provider-scoped (opencode default, claude_code
-    opt-in). degrades to a clear note if the agent runtime/credentials are unavailable.
+async def synthesize(client: MantisClient, space_id: str, provider: Provider) -> tuple[str, str | None]:
+    """run an agent to synthesize a briefing. returns (text, chat_id).
+
+    provider-scoped (opencode default, claude_code opt-in). degrades gracefully if the agent
+    runtime/credentials are unavailable.
 
     the agent is scoped to the one m4m space (it auto-mints a space-state so its MCP tools can
     inspect the maps). all_spaces mode would reason across every accessible space instead."""
@@ -250,9 +252,10 @@ async def synthesize(client: MantisClient, space_id: str, provider: Provider) ->
                 elif ev.type == "fail":
                     print(f"\n  [agent run reported failure] {ev.text}", flush=True)
             print()
-            return analyst.result().text or "".join(chunks) or "_(agent returned no text — check model credentials)_"
+            text = analyst.result().text or "".join(chunks) or "_(agent returned no text — check model credentials)_"
+            return text, analyst.chat_id
     except Exception as exc:
-        return f"_(agent synthesis unavailable: {type(exc).__name__}: {exc})_"
+        return f"_(agent synthesis unavailable: {type(exc).__name__}: {exc})_", None
 
 
 # ----------------------------------------------------------------------------- phase 4: brief
@@ -296,7 +299,15 @@ async def main():
     metrics = analyze(client, maps_by_name, state)
     state["metrics"] = {k: v for k, v in metrics.items() if not k.startswith("_")}
 
-    synthesis = await synthesize(client, space_id, provider)
+    synthesis, chat_id = await synthesize(client, space_id, provider)
+
+    # pin the synthesis conversation so visitors see it by default
+    if chat_id:
+        try:
+            client.featured_chat.set(space_id, chat_id)
+            print(f"  [featured] pinned chat {chat_id} to space")
+        except Exception as exc:
+            print(f"  [featured] failed to pin: {exc}")
 
     brief = write_brief(space_id, maps_by_name, metrics, synthesis)
     _save_state(state)
