@@ -198,6 +198,9 @@ class AgentSession:
 
     async def close(self) -> None:
         if self._ws is not None:
+            import asyncio
+            # allow Agno time to persist the session before the WS disconnects
+            await asyncio.sleep(2)
             await self._ws.close()
             self._ws = None
 
