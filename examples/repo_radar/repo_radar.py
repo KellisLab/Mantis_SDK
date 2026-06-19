@@ -253,9 +253,14 @@ async def synthesize(client: MantisClient, space_id: str, provider: Provider) ->
                     print(f"\n  [agent run reported failure] {ev.text}", flush=True)
             print()
             text = analyst.result().text or "".join(chunks) or "_(agent returned no text — check model credentials)_"
-            return text, analyst.server_chat_id or analyst.chat_id
+            # build message list for persistence
+            messages = [
+                {"role": "user", "content": SYNTHESIS_PROMPT},
+                {"role": "assistant", "content": text},
+            ]
+            return text, analyst.server_chat_id or analyst.chat_id, messages
     except Exception as exc:
-        return f"_(agent synthesis unavailable: {type(exc).__name__}: {exc})_", None
+        return f"_(agent synthesis unavailable: {type(exc).__name__}: {exc})_", None, None
 
 
 # ----------------------------------------------------------------------------- phase 4: brief
@@ -299,12 +304,13 @@ async def main():
     metrics = analyze(client, maps_by_name, state)
     state["metrics"] = {k: v for k, v in metrics.items() if not k.startswith("_")}
 
-    synthesis, chat_id = await synthesize(client, space_id, provider)
+    synthesis, chat_id, chat_messages = await synthesize(client, space_id, provider)
 
     # pin the synthesis conversation so visitors see it by default
     if chat_id:
         try:
-            client.featured_chat.set(space_id, chat_id)
+            client.featured_chat.set(space_id, chat_id, messages=chat_messages,
+                                     title="Repo Radar Briefing")
             print(f"  [featured] pinned chat {chat_id} to space")
         except Exception as exc:
             print(f"  [featured] failed to pin: {exc}")

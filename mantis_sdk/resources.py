@@ -400,11 +400,17 @@ class FeaturedChatResource(_BaseResource):
         """get the featured chat for a space. returns {featured_chat_id, user_chat_session_id}."""
         return self.http.request("GET", "/api/featured-chat", params={"space_id": space_id})
 
-    def set(self, space_id: str, chat_id: str) -> dict:
-        """pin a chat as the space's featured conversation. clears all user copies."""
-        return self.http.request(
-            "PUT", "/api/featured-chat", json={"space_id": space_id, "chat_id": chat_id}
-        )
+    def set(self, space_id: str, chat_id: str, *, messages: list[dict] | None = None,
+            title: str | None = None) -> dict:
+        """pin a chat as the space's featured conversation. clears all user copies.
+
+        pass messages to ensure the chat is persisted (Agno may not have flushed yet)."""
+        payload: dict = {"space_id": space_id, "chat_id": chat_id}
+        if messages:
+            payload["messages"] = messages
+        if title:
+            payload["title"] = title
+        return self.http.request("PUT", "/api/featured-chat", json=payload)
 
     def clear(self, space_id: str) -> dict:
         """remove the featured chat from a space."""
