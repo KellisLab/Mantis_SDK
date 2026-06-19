@@ -130,6 +130,7 @@ class AgentSession:
         self.mode = mode
         self._ws = None
         self._events: list[AgentEvent] = []
+        self.server_chat_id: str | None = None
 
     def _ws_url(self) -> str:
         cfg = self._resource.http.config
@@ -253,6 +254,10 @@ class AgentSession:
                 continue
             if not isinstance(data, dict):
                 continue
+
+            # capture the real Agno session_id from the first message that carries it
+            if "chat_id" in data and data["chat_id"]:
+                self.server_chat_id = data["chat_id"]
 
             event = AgentEvent.from_wire(data)
             # assert the backend didn't silently route to a different runtime.

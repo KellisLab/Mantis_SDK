@@ -253,7 +253,7 @@ async def synthesize(client: MantisClient, space_id: str, provider: Provider) ->
                     print(f"\n  [agent run reported failure] {ev.text}", flush=True)
             print()
             text = analyst.result().text or "".join(chunks) or "_(agent returned no text — check model credentials)_"
-            return text, analyst.chat_id
+            return text, analyst.server_chat_id or analyst.chat_id
     except Exception as exc:
         return f"_(agent synthesis unavailable: {type(exc).__name__}: {exc})_", None
 
