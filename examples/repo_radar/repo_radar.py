@@ -138,7 +138,7 @@ DELTA_CODE_TEMPLATE = """\
 # delta + velocity analysis — find THIS map by id in the kernel's maps list
 import collections, json
 _target = '{map_id}'
-_m = next((m for m in maps if m.map_id == _target), None) or maps[0]
+_m = next((m for m in maps if str(m.map_id) == _target), None) or maps[0]
 pts = _m.points
 rows = [getattr(p, 'metadata', {{}}) or {{}} for p in pts]
 n = len(pts)
@@ -157,7 +157,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 _target = '{map_id}'
-_m = next((m for m in maps if m.map_id == _target), None) or maps[0]
+_m = next((m for m in maps if str(m.map_id) == _target), None) or maps[0]
 rows = [getattr(p, 'metadata', {{}}) or {{}} for p in _m.points]
 c = collections.Counter(r.get('author', 'unknown') for r in rows).most_common(10)
 labels = [a for a, _ in c]; vals = [v for _, v in c]
