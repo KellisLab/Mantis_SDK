@@ -365,7 +365,7 @@ class AgentsResource:
             space_state_id = self._client.space_states.create(space_id, name="SDK agent")
         return AgentSession(
             self, user_email=user_email, provider=provider, space_id=space_id,
-            chat_id=chat_id or f"sdk-{uuid.uuid4()}", timeout=timeout,
+            chat_id=chat_id or "new", timeout=timeout,
             all_spaces=all_spaces, mode=mode, space_state_id=space_state_id,
         )
 
