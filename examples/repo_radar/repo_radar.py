@@ -231,7 +231,7 @@ Using the PRs, issues, contributors, and codebase maps in this space, write a co
 2-4 bullet points on the biggest themes of merged or near-merge work this week. Name the PRs and who owns them.
 
 ## Who's doing what
-A short table or list: for each active contributor, what area they're focused on (1 line each, max 8 people).
+A short table or list: for each active contributor, what area of the codebase they've been touching recently (use the Codebase map's last_author and last_updated fields — NOT issues). 1 line each, max 8 people.
 
 ## Risks & blockers
 2-3 bullet points on concrete risks: stale PRs, security gaps, unreviewed dependencies, broken tests, or resource bottlenecks.
