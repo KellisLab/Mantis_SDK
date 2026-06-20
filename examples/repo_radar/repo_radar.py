@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import sources  # noqa: E402
 
 from mantis_sdk import ConfigurationManager, MantisClient, Provider  # noqa: E402
+from mantis_sdk.enums import SpacePrivacy  # noqa: E402
 from mantis_sdk.exceptions import MantisError  # noqa: E402
 
 STATE_FILE = Path(os.getenv("REPO_RADAR_STATE", "/tmp/repo_radar_state.json"))
@@ -113,6 +114,7 @@ def build_maps(client: MantisClient) -> tuple[str, dict[str, str]]:
                 f"Mantis Radar — {name}", df, data_types,
                 space_id=space_id, map_id=map_id,  # same space + stable map id ⇒ idempotent refresh
                 map_name=map_titles[name],  # so the map isn't named "Untitled Map"
+                privacy_level=SpacePrivacy.PUBLIC,
                 show_progress=False,
                 stall_timeout=1800.0,  # code map can take a while for large file sets
                 on_progress=lambda p, m, t, n=name: print(f"    {n}: {p:3d}% {m or ''}", end="\r"),
