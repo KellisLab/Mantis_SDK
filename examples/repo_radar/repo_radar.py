@@ -174,7 +174,9 @@ def analyze(client: MantisClient, maps_by_name: dict[str, str], state: dict) -> 
     prev = state.get("metrics", {})
     metrics: dict = {}
     chart_png = None
-    for name, map_id in maps_by_name.items():
+    # skip code map — it rebuilds last and the kernel loads stale (0-point) data during rebuild
+    notebook_maps = {k: v for k, v in maps_by_name.items() if k != "code"}
+    for name, map_id in notebook_maps.items():
         try:
             nb = client.notebooks.from_map(map_id, name=f"radar-{name}",
                                            user_id=os.getenv("MANTIS_USER_EMAIL"))
@@ -220,12 +222,25 @@ def _grab_int(text: str, key: str) -> int:
 # the cross-map synthesis is done from the per-map metrics. Flip USE_ALL_SPACES to try it.
 USE_ALL_SPACES = os.getenv("REPO_RADAR_ALL_SPACES") == "1"
 
-SYNTHESIS_PROMPT = (
-    "You are Repo Radar, an intelligence officer for the Mantis project. Looking at this map of "
-    "the project's pull requests, give a tight briefing: (1) the single biggest theme of work, "
-    "citing specific PRs; (2) one concrete risk or gap; (3) one recommended priority for next "
-    "week. Be concise and cite items by title."
-)
+SYNTHESIS_PROMPT = """\
+You are Repo Radar, a weekly intelligence digest for the Mantis engineering team.
+
+Using the PRs, issues, contributors, and codebase maps in this space, write a concise team-readable briefing. Format it exactly like this:
+
+## What shipped / is shipping
+2-4 bullet points on the biggest themes of merged or near-merge work this week. Name the PRs and who owns them.
+
+## Who's doing what
+A short table or list: for each active contributor, what area they're focused on (1 line each, max 8 people).
+
+## Risks & blockers
+2-3 bullet points on concrete risks: stale PRs, security gaps, unreviewed dependencies, broken tests, or resource bottlenecks.
+
+## Recommended priorities (next week)
+2-3 actionable bullets the team lead can act on Monday morning.
+
+Keep it scannable — short sentences, bold the PR titles, use people's GitHub handles. No preamble, no sign-off.\
+"""
 
 
 async def synthesize(client: MantisClient, space_id: str, provider: Provider) -> tuple[str, str | None]:

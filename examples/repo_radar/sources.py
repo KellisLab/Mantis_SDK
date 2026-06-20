@@ -219,26 +219,26 @@ _MAX_SNIPPET = 1200  # chars of file content to embed
 _MAX_FILES = 800  # cap total files to keep embedding time reasonable
 
 
-def _build_file_commit_stats(repos: list[str], max_commits: int = 50) -> dict[str, dict]:
-    """Build per-file stats (top_author, last_author, last_updated) from recent commit details.
+def _build_file_commit_stats(repos: list[str], max_pages: int = 5) -> dict[str, dict]:
+    """Build per-file stats (top_author, last_author, last_updated) from recent commits.
 
-    Fetches the last `max_commits` commits per repo with their file lists (one API call each)
-    to build author/date metadata per file path."""
+    Uses the per-file /commits?path= endpoint for each candidate file — but that's too slow
+    for 800 files. Instead we fetch the last ~500 commits' details (5 pages × 100) and record
+    which files each touched. Files not in recent history get 'unknown'."""
     from collections import Counter
     file_authors: dict[str, list[str]] = {}
     file_dates: dict[str, str] = {}
 
     for repo in repos:
         repo_short = repo.split("/")[-1]
-        # get recent commit SHAs
-        commits = _paginate(f"{_API}/repos/{repo}/commits", {}, max_pages=1)[:max_commits]
-        for commit in commits:
+        commits = _paginate(f"{_API}/repos/{repo}/commits", {}, max_pages=max_pages)
+        print(f"  [code-stats] {repo_short}: fetching details for {len(commits)} commits...")
+        for i, commit in enumerate(commits):
             sha = commit.get("sha")
             login = (commit.get("author") or {}).get("login") or "unknown"
             date = (commit.get("commit", {}).get("author", {}).get("date") or "")[:10]
             if not sha:
                 continue
-            # fetch detail to get files list
             try:
                 detail = requests.get(
                     f"{_API}/repos/{repo}/commits/{sha}",
@@ -254,7 +254,9 @@ def _build_file_commit_stats(repos: list[str], max_commits: int = 50) -> dict[st
                 file_authors.setdefault(key, []).append(login)
                 if date and (not file_dates.get(key) or date > file_dates[key]):
                     file_dates[key] = date
-            time.sleep(0.05)
+            if i % 50 == 49:
+                print(f"  [code-stats] {repo_short}: {i+1}/{len(commits)} commits processed")
+            time.sleep(0.02)
 
     stats = {}
     for key, authors in file_authors.items():
@@ -264,6 +266,7 @@ def _build_file_commit_stats(repos: list[str], max_commits: int = 50) -> dict[st
             "last_author": authors[0],
             "last_updated": file_dates.get(key, ""),
         }
+    print(f"  [code-stats] built stats for {len(stats)} files")
     return stats
 
 
