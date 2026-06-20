@@ -219,12 +219,64 @@ _MAX_SNIPPET = 1200  # chars of file content to embed
 _MAX_FILES = 800  # cap total files to keep embedding time reasonable
 
 
+def _build_file_commit_stats(repos: list[str], max_commits: int = 50) -> dict[str, dict]:
+    """Build per-file stats (top_author, last_author, last_updated) from recent commit details.
+
+    Fetches the last `max_commits` commits per repo with their file lists (one API call each)
+    to build author/date metadata per file path."""
+    from collections import Counter
+    file_authors: dict[str, list[str]] = {}
+    file_dates: dict[str, str] = {}
+
+    for repo in repos:
+        repo_short = repo.split("/")[-1]
+        # get recent commit SHAs
+        commits = _paginate(f"{_API}/repos/{repo}/commits", {}, max_pages=1)[:max_commits]
+        for commit in commits:
+            sha = commit.get("sha")
+            login = (commit.get("author") or {}).get("login") or "unknown"
+            date = (commit.get("commit", {}).get("author", {}).get("date") or "")[:10]
+            if not sha:
+                continue
+            # fetch detail to get files list
+            try:
+                detail = requests.get(
+                    f"{_API}/repos/{repo}/commits/{sha}",
+                    headers=_gh_headers(), timeout=15,
+                ).json()
+            except Exception:
+                continue
+            for f in detail.get("files", []):
+                path = f.get("filename", "")
+                if not path:
+                    continue
+                key = f"{repo_short}/{path}"
+                file_authors.setdefault(key, []).append(login)
+                if date and (not file_dates.get(key) or date > file_dates[key]):
+                    file_dates[key] = date
+            time.sleep(0.05)
+
+    stats = {}
+    for key, authors in file_authors.items():
+        c = Counter(authors)
+        stats[key] = {
+            "top_author": c.most_common(1)[0][0],
+            "last_author": authors[0],
+            "last_updated": file_dates.get(key, ""),
+        }
+    return stats
+
+
 def github_code(repos: list[str] = REPOS, branch: str = "main") -> tuple[pd.DataFrame, dict]:
     """Source-tree walk of both repos via the Git Trees API — one point per source file.
 
     Focuses on Python/TS/JS source files (not configs), sorted by size descending and capped
     at _MAX_FILES to keep embedding time under ~10 minutes. Each point's semantic content is
-    the first ~1200 chars (imports + top-level signatures)."""
+    the first ~1200 chars (imports + top-level signatures). Enriched with commit metadata
+    (most frequent author, last author, last updated date)."""
+    # pre-fetch commit stats for author/date enrichment
+    file_stats = _build_file_commit_stats(repos)
+
     candidates = []
     for repo in repos:
         tree_url = f"{_API}/repos/{repo}/git/trees/{branch}?recursive=1"
@@ -264,18 +316,24 @@ def github_code(repos: list[str] = REPOS, branch: str = "main") -> tuple[pd.Data
         time.sleep(0.02)
 
         directory = "/".join(parts[:-1]) or "."
+        repo_short = repo.split("/")[-1]
+        stats = file_stats.get(f"{repo_short}/{path}", {})
         rows.append({
             "title": path,
             "content": snippet,
-            "repo": repo.split("/")[-1],
+            "repo": repo_short,
             "directory": directory,
             "extension": ext,
             "size": size,
+            "top_author": stats.get("top_author", "unknown"),
+            "last_author": stats.get("last_author", "unknown"),
+            "last_updated": stats.get("last_updated", ""),
         })
     df = pd.DataFrame(rows)
     types = {
         "title": "title", "content": "semantic", "repo": "categoric",
         "directory": "categoric", "extension": "categoric", "size": "numeric",
+        "top_author": "categoric", "last_author": "categoric", "last_updated": "date",
     }
     return df, types
 
