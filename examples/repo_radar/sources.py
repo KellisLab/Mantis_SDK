@@ -17,7 +17,7 @@ from typing import Any
 import pandas as pd
 import requests
 
-REPOS = ["KellisLab/MantisAPI", "KellisLab/Mantis"]
+REPOS = ["KellisLab/MantisAPI", "KellisLab/Mantis", "KellisLab/Mantis_SDK"]
 GDOC_ID = "1phoQhus36Dc3SEsFCE4V18YDjxEadwXekn-VCZu0d3o"
 _API = "https://api.github.com"
 
