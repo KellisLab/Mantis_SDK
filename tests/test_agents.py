@@ -39,6 +39,22 @@ def test_event_from_wire_unknown_passes_through():
     assert ev.type == "other" and ev.raw["x"] == 1
 
 
+def test_event_from_wire_ai_final_frame_is_text():
+    # the agent runtime streams assistant text as untyped {sender:ai, message, partial}.
+    final = AgentEvent.from_wire({"sender": "ai", "message": "done", "partial": False})
+    assert final.type == "text" and final.text == "done"
+
+
+def test_event_from_wire_ai_partial_frame_is_typing():
+    # partial snapshots should NOT be counted as text (avoid double-counting).
+    partial = AgentEvent.from_wire({"sender": "ai", "message": "do", "partial": True})
+    assert partial.type == "typing"
+
+
+def test_event_from_wire_heartbeat_is_typing():
+    assert AgentEvent.from_wire({"type": "heartbeat", "message_id": "x"}).type == "typing"
+
+
 # --- capability gating (REST via recording transport) ---
 
 def test_opencode_never_calls_capability_check(client, transport):
@@ -96,7 +112,9 @@ class _FakeWS:
 
     async def recv(self):
         if not self._script:
-            raise AssertionError("recv called after script exhausted")
+            # mimic a live socket going quiet — block forever so wait_for() times out.
+            import asyncio
+            await asyncio.Event().wait()
         return self._script.pop(0)
 
     async def close(self):
@@ -106,7 +124,7 @@ class _FakeWS:
 def _session(client, provider=Provider.OpenCode, script=None):
     sess = client.agents.session(
         "space1", provider=provider, user_email="u@e.com",
-        check_capability=False, timeout=5,
+        check_capability=False, timeout=5, auto_space_state=False,
     )
     sess._ws = _FakeWS(script or [])
     return sess
@@ -145,6 +163,22 @@ async def test_ask_raises_on_provider_mismatch(client):
 
 
 @pytest.mark.asyncio
+async def test_ask_finishes_on_final_text_when_complete_dropped(client):
+    # backend sometimes drops the chat_complete envelope (kafka→socket bridge); after the
+    # committed final answer we should finish on a short grace, not hang the full idle timeout.
+    script = [
+        {"type": "chat_messages", "content": "partial", "provider": "opencode"},
+        {"sender": "ai", "message": "the final answer", "partial": False, "provider": "opencode"},
+        # no chat_complete — socket then goes silent (FakeWS blocks)
+    ]
+    sess = _session(client, script=script)
+    sess.final_grace = 0.05  # tiny grace so the test is fast
+    texts = [ev.text for ev in [e async for e in sess.ask("hi")] if ev.type == "text"]
+    assert "the final answer" in "".join(texts)
+    assert sess.result().text  # assembled despite no terminal event
+
+
+@pytest.mark.asyncio
 async def test_ask_surfaces_chat_fail(client):
     script = [
         {"type": "chat_messages", "content": "partial", "provider": "opencode"},
@@ -173,7 +207,7 @@ async def test_ask_sends_map_and_bag_scoping(client):
 def test_ws_url_uses_email_path_and_provider(client):
     sess = client.agents.session(
         "space1", provider=Provider.ClaudeCode, user_email="a+b@e.com",
-        check_capability=False,
+        check_capability=False, auto_space_state=False,
     )
     url = sess._ws_url()
     # email is url-encoded in the path; provider is the model_id; space is a query param.
@@ -185,3 +219,73 @@ def test_ws_url_uses_email_path_and_provider(client):
 
 def test_default_provider_is_opencode():
     assert AgentsResource.DEFAULT_PROVIDER == Provider.OpenCode
+
+
+def test_session_auto_creates_space_state(client, transport):
+    # scoping to a space should mint a space-state and thread it onto the ws url.
+    # create() is get-or-create: it lists first (none exist), then POSTs.
+    transport.queue = [[], {"id": "ss-123", "name": "SDK agent"}]
+    sess = client.agents.session("space1", provider=Provider.OpenCode, user_email="u@e.com",
+                                 check_capability=False)
+    assert sess.space_state_id == "ss-123"
+    assert "space_state_id=ss-123" in sess._ws_url()
+    assert "space_id=space1" in sess._ws_url()
+    # it hit the cookie-auth space-state endpoint
+    assert transport.calls[-1]["url"].endswith("/api/space-state/")
+
+
+def test_space_state_create_reuses_existing(client, transport):
+    # get-or-create: if a state with the same name exists, reuse it (no POST).
+    transport.queue = [[{"id": "ss-old", "name": "SDK agent"}]]
+    sid = client.space_states.create("space1", name="SDK agent")
+    assert sid == "ss-old"
+    assert len(transport.calls) == 1  # only the list GET, no create POST
+
+
+def test_session_skips_space_state_when_disabled(client, transport):
+    sess = client.agents.session("space1", provider=Provider.OpenCode, user_email="u@e.com",
+                                 check_capability=False, auto_space_state=False)
+    assert sess.space_state_id is None
+    assert "space_state_id" not in sess._ws_url()
+    assert transport.calls == []  # no mint call
+
+
+def test_session_reuses_explicit_space_state(client, transport):
+    sess = client.agents.session("space1", provider=Provider.OpenCode, user_email="u@e.com",
+                                 check_capability=False, space_state_id="ss-explicit")
+    assert sess.space_state_id == "ss-explicit"
+    assert transport.calls == []  # no mint call — caller supplied one
+
+
+def test_all_spaces_does_not_mint_space_state(client, transport):
+    # all_spaces has no single space to scope, so no space-state is created.
+    sess = client.agents.session(provider=Provider.OpenCode, user_email="u@e.com",
+                                 check_capability=False, all_spaces=True)
+    assert sess.space_state_id is None
+    assert transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_all_spaces_initialization_handshake(client):
+    # all_spaces=True must send agent_initialization{all_spaces_mode:true} and wait for the ack.
+    sess = client.agents.session(
+        provider=Provider.OpenCode, user_email="u@e.com", check_capability=False,
+        all_spaces=True, timeout=5,
+    )
+    sess._ws = _FakeWS([{"type": "agent_initialized", "success": True}])
+    await sess._initialize()
+    assert sess._ws.sent[0]["type"] == "agent_initialization"
+    assert sess._ws.sent[0]["all_spaces_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_initialization_failure_raises(client):
+    from mantis_sdk.exceptions import AgentRunError
+
+    sess = client.agents.session(
+        provider=Provider.OpenCode, user_email="u@e.com", check_capability=False,
+        all_spaces=True, timeout=5,
+    )
+    sess._ws = _FakeWS([{"type": "agent_initialized", "success": False, "error": "no spaces"}])
+    with pytest.raises(AgentRunError, match="initialization failed"):
+        await sess._initialize()

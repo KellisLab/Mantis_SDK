@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -55,6 +54,13 @@ class AgentEvent:
     def from_wire(cls, data: dict) -> AgentEvent:
         wire = data.get("type", "")
         provider = data.get("provider")
+        # the agent runtime streams assistant text as untyped {sender:"ai", message, partial}
+        # frames (no "type" key). surface only the FINAL frame (partial=false) as text so we
+        # don't double-count the streaming snapshots.
+        if not wire and data.get("sender") == "ai" and "message" in data:
+            if data.get("partial"):
+                return cls("typing", provider=provider, raw=data)
+            return cls("text", text=data.get("message", "") or "", provider=provider, raw=data)
         if wire in _TEXT_TYPES:
             return cls("text", text=data.get("content", "") or "", provider=provider, raw=data)
         if wire == "tool_use":
@@ -67,7 +73,8 @@ class AgentEvent:
             return cls("thinking", text=data.get("content", "") or "", provider=provider, raw=data)
         if wire == "agent_session_init":
             return cls("init", provider=provider, raw=data)
-        if wire == "typing_indicator":
+        if wire in ("typing_indicator", "heartbeat"):
+            # heartbeats keep the socket alive during a long claude_code/opencode run.
             return cls("typing", provider=provider, raw=data)
         if wire == "chat_complete":
             return cls("complete", text=data.get("content", "") or "", provider=provider, raw=data)
@@ -103,15 +110,26 @@ class AgentSession:
     """
 
     def __init__(self, resource: AgentsResource, *, user_email: str, provider: Provider,
-                 space_id: str | None, chat_id: str, timeout: float):
+                 space_id: str | None, chat_id: str, timeout: float,
+                 all_spaces: bool = False, mode: str | None = None,
+                 space_state_id: str | None = None):
         self._resource = resource
         self.user_email = user_email
         self.provider = Provider(provider)
         self.space_id = space_id
+        # the composer only sets the agent's X-Space-State-ID (which its MCP tools need to know
+        # which space/map to act on) when ws/chat is given a space_state_id. without it the agent
+        # can talk but can't inspect the space.
+        self.space_state_id = space_state_id
         self.chat_id = chat_id
         self.timeout = timeout
+        # all_spaces lets one agent reason across every accessible map at once (the backend's
+        # initialize_all_spaces_agent path) — not possible in the single-space UI.
+        self.all_spaces = all_spaces
+        self.mode = mode
         self._ws = None
         self._events: list[AgentEvent] = []
+        self.server_chat_id: str | None = None
 
     def _ws_url(self) -> str:
         cfg = self._resource.http.config
@@ -120,6 +138,8 @@ class AgentSession:
         url = f"{ws_base}/ws/chat/{self.chat_id}/{quote(self.user_email, safe='')}/default/?model_id={self.provider.value}"
         if self.space_id:
             url += f"&space_id={self.space_id}"
+        if self.space_state_id:
+            url += f"&space_state_id={self.space_state_id}"
         return url
 
     async def __aenter__(self) -> AgentSession:
@@ -127,16 +147,59 @@ class AgentSession:
 
         cookie = self._resource.http.cookie
         headers = {"Cookie": cookie} if cookie else None
-        self._ws = await websockets.connect(
-            self._ws_url(), additional_headers=headers, max_size=None, open_timeout=self.timeout
-        )
+        # the header kwarg was renamed extra_headers → additional_headers in websockets 14.
+        # try the new name, fall back to the old so we work across the pinned range (>=10.4).
+        try:
+            self._ws = await websockets.connect(
+                self._ws_url(), additional_headers=headers, max_size=None, open_timeout=self.timeout,
+            )
+        except TypeError:
+            self._ws = await websockets.connect(
+                self._ws_url(), extra_headers=headers, max_size=None, open_timeout=self.timeout,
+            )
+        # initialize the composer agent when an explicit mode or all_spaces is requested.
+        # the backend routes all_spaces_mode → initialize_all_spaces_agent (cross-map search).
+        if self.all_spaces or self.mode:
+            await self._initialize()
         return self
+
+    async def _initialize(self, ack_timeout: float = 30.0) -> None:
+        """send agent_initialization; wait (best-effort) for the agent_initialized ack.
+
+        the backend delivers the ack via a channel-layer group broadcast, which may or may not
+        loop back to a headless single socket depending on the deployment. so we wait up to
+        ack_timeout for it, but if it doesn't arrive we proceed anyway (the backend still
+        processed the init) rather than failing the whole run. a `success=false` ack IS fatal."""
+        import asyncio
+
+        init: dict[str, Any] = {"type": "agent_initialization", "all_spaces_mode": self.all_spaces}
+        if self.mode:
+            init["mode"] = self.mode
+        await self._ws.send(json.dumps(init))
+        deadline = time.monotonic() + ack_timeout
+        while time.monotonic() < deadline:
+            try:
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=deadline - time.monotonic())
+            except asyncio.TimeoutError:
+                logger.debug("agent_initialized ack not received in %.0fs; proceeding", ack_timeout)
+                return
+            try:
+                data = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(data, dict) and data.get("type") == "agent_initialized":
+                if not data.get("success", True):
+                    raise AgentRunError(f"agent initialization failed: {data.get('error')}")
+                return
 
     async def __aexit__(self, *exc: Any) -> None:
         await self.close()
 
     async def close(self) -> None:
         if self._ws is not None:
+            import asyncio
+            # allow Agno time to persist the session before the WS disconnects
+            await asyncio.sleep(2)
             await self._ws.close()
             self._ws = None
 
@@ -166,15 +229,26 @@ class AgentSession:
 
         await self._ws.send(json.dumps(payload))
 
-        deadline = time.monotonic() + self.timeout
+        # idle timeout: a long claude_code/opencode run can take minutes, but the backend sends
+        # heartbeats, so we bound on SILENCE (no event for `self.timeout`s), not total duration.
+        # final-answer grace: the backend sends the committed final text (a non-partial ai frame)
+        # and *then* a chat_complete envelope — but that envelope is delivered over a kafka→socket
+        # bridge that occasionally drops it, leaving us blocked on recv() for the full idle
+        # timeout AFTER the answer already arrived. so once we've seen the final text, we wait
+        # only `final_grace`s for a terminal event, then finish cleanly.
+        saw_final_text = False
+        final_grace = getattr(self, "final_grace", 8.0)
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise AgentRunError(f"agent run timed out after {self.timeout}s")
+            wait = final_grace if saw_final_text else self.timeout
             try:
-                raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=wait)
             except asyncio.TimeoutError as exc:
-                raise AgentRunError(f"agent run timed out after {self.timeout}s") from exc
+                if saw_final_text:
+                    return  # answer already delivered; the terminal envelope just didn't arrive
+                raise AgentRunError(
+                    f"agent run idle for {self.timeout}s with no event (backend sends heartbeats; "
+                    f"a longer idle timeout or a stuck run?)"
+                ) from exc
 
             try:
                 data = json.loads(raw)
@@ -182,6 +256,10 @@ class AgentSession:
                 continue
             if not isinstance(data, dict):
                 continue
+
+            # capture the real Agno session_id from the first message that carries it
+            if "chat_id" in data and data["chat_id"]:
+                self.server_chat_id = data["chat_id"]
 
             event = AgentEvent.from_wire(data)
             # assert the backend didn't silently route to a different runtime.
@@ -194,6 +272,9 @@ class AgentSession:
             yield event
             if event.is_terminal:
                 return
+            # a committed final answer frame ({sender:ai, partial:false}) → start the grace clock.
+            if event.type == "text" and data.get("sender") == "ai" and data.get("partial") is False:
+                saw_final_text = True
 
     def result(self) -> AgentResult:
         """assemble the full assistant text + outcome from the events seen so far."""
@@ -254,11 +335,25 @@ class AgentsResource:
                 user_email: str | None = None,
                 chat_id: str | None = None,
                 timeout: float = 180.0,
-                check_capability: bool = True) -> AgentSession:
+                check_capability: bool = True,
+                all_spaces: bool = False,
+                mode: str | None = None,
+                space_state_id: str | None = None,
+                auto_space_state: bool = True) -> AgentSession:
         """open a streaming agent session. opencode by default; claude_code is checked up front.
 
-        user_email is required (identity for capability gating); falls back to MANTIS_USER_EMAIL
-        via the config's internal_user_id is NOT valid here — agents key on email, not user_id."""
+        set all_spaces=True to let one agent reason across every accessible map at once (the
+        backend's all-spaces composer; not possible in the single-space UI). `mode` selects a
+        composer mode (e.g. "Orchestrator", "Ask") and triggers initialization on connect.
+
+        when scoped to a space_id, the agent's MCP tools need a space-state id to know which
+        space/map to act on. by default (auto_space_state=True) we mint one via
+        client.space_states.create() — the same cookie-auth endpoint the browser uses — and
+        thread it onto the connect. pass space_state_id to reuse an existing one, or
+        auto_space_state=False to skip (the agent can talk but not inspect the space).
+
+        user_email is required (identity for capability gating); falls back to config.user_email.
+        agents key on email, not user_id."""
         provider = Provider(provider)
         user_email = user_email or getattr(self.http.config, "user_email", None)
         if not user_email:
@@ -268,9 +363,12 @@ class AgentsResource:
             )
         if check_capability:
             self._assert_available(user_email, provider)
+        if space_id and not space_state_id and not all_spaces and auto_space_state:
+            space_state_id = self._client.space_states.create(space_id, name="SDK agent")
         return AgentSession(
             self, user_email=user_email, provider=provider, space_id=space_id,
-            chat_id=chat_id or f"sdk-{uuid.uuid4()}", timeout=timeout,
+            chat_id=chat_id or "new", timeout=timeout,
+            all_spaces=all_spaces, mode=mode, space_state_id=space_state_id,
         )
 
     def run_sync(self, message: str, space_id: str | None = None, *,

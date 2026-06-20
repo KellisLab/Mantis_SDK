@@ -89,6 +89,8 @@ class MantisClientProtocol:
     http: HttpClient
     spaces: SpacesResource
     annotations: AnnotationsResource
+    space_states: SpaceStatesResource
+    aliases: AliasesResource
 
 
 class _BaseResource:
@@ -136,11 +138,22 @@ class SpacesResource(_BaseResource):
         show_progress: bool = False,
         wait: bool = True,
         stall_timeout: float | None = 600.0,
+        space_id: str | None = None,
+        map_id: str | None = None,
+        map_name: str | None = None,
     ) -> SpaceHandle:
         """create a space from a DataFrame or csv path, then (by default) poll to completion.
 
         returns a SpaceHandle carrying space_id and map_id. set wait=False to return as soon
-        as the pipeline is enqueued. stall_timeout raises if progress stops advancing."""
+        as the pipeline is enqueued. stall_timeout raises if progress stops advancing.
+
+        pass an explicit space_id to add this map to an EXISTING space (the backend
+        get_or_creates the space, so reusing a space_id is idempotent). pass a stable map_id
+        to refresh that map in place on re-runs (the backend updates the map of that id rather
+        than creating a new one) — this is how you keep one space with a fixed set of maps.
+
+        map_name names the map; without it the backend falls back to "Untitled Map". defaults
+        to space_name so a single-map space gets a sensible label out of the box."""
         buffer, columns, file_extension = self._load_data(data)
 
         data_types_sanitized = self._sanitize_data_types(columns, data_types)
@@ -155,12 +168,13 @@ class SpacesResource(_BaseResource):
                 f"columns ({len(data_types_sanitized)})"
             )
 
-        space_id = str(uuid.uuid4())
+        space_id = space_id or str(uuid.uuid4())
         file_key = f"{space_name}-{space_id}.{file_extension}"
 
         form_data = {
             "space_id": space_id,
             "space_name": space_name,
+            "map_name": map_name or space_name,  # backend defaults to "Untitled Map" if omitted
             "is_public": str(str(privacy_level) == str(SpacePrivacy.PUBLIC)).lower(),
             "red_model": str(reducer),
             "custom_models": json.dumps(custom_models),
@@ -170,6 +184,8 @@ class SpacesResource(_BaseResource):
             "chat_model": chat_model,
             "embedding_model": embedding_model,
         }
+        if map_id:  # stable map id → backend refreshes that map in place instead of minting one
+            form_data["map_id"] = map_id
         files = {"file": (f"data.{file_extension}", buffer, f"text/{file_extension}")}
 
         resp = self.http.request("POST", "/synthesis/landscape", data=form_data, files=files)
@@ -344,6 +360,117 @@ class MapsResource(_BaseResource):
 
     def get_ideas(self, ids: list[str]) -> Any:
         return self.http.request("GET", "/api/getIdeas", params={"ids": ",".join(ids)})
+
+
+class SpaceStatesResource(_BaseResource):
+    """create/list space-states — a per-user live view of a space (selection, bags, active map).
+
+    agents need a space-state id so their MCP tools know which space/map to act on; the backend
+    only sets the X-Space-State-ID header when ws/chat is given a space_state_id. the browser
+    mints one when you open a space; a headless sdk session mints one here (same cookie-auth
+    endpoint the frontend uses)."""
+
+    def create(self, space_id: str, name: str = "SDK") -> str:
+        """get-or-create a space-state for (space, name) and return its id.
+
+        space-state is unique on (space, name, created_by), so blindly POSTing the same name
+        twice raises an integrity error (500) on re-runs. we reuse an existing state of this
+        name when present — making the call idempotent."""
+        for existing in self.list(space_id):
+            if isinstance(existing, dict) and existing.get("name") == name and existing.get("id"):
+                return existing["id"]
+        resp = self.http.request(
+            "POST", "/api/space-state", json={"space_id": space_id, "name": name}
+        )
+        if not isinstance(resp, dict) or "id" not in resp:
+            raise MantisError(f"space-state create returned no id: {resp}")
+        return resp["id"]
+
+    def list(self, space_id: str) -> list[dict]:
+        resp = self.http.request("GET", "/api/space-state", params={"space_id": space_id})
+        if isinstance(resp, dict):
+            return resp.get("states", resp.get("results", []))
+        return resp if isinstance(resp, list) else (resp or [])
+
+
+class FeaturedChatResource(_BaseResource):
+    """pin a conversation to a space so it auto-loads for visitors."""
+
+    def get(self, space_id: str) -> dict:
+        """get the featured chat for a space. returns {featured_chat_id, user_chat_session_id}."""
+        return self.http.request("GET", "/api/featured-chat", params={"space_id": space_id})
+
+    def set(self, space_id: str, chat_id: str, *, messages: list[dict] | None = None,
+            title: str | None = None) -> dict:
+        """pin a chat as the space's featured conversation. clears all user copies.
+
+        pass messages to ensure the chat is persisted (Agno may not have flushed yet)."""
+        payload: dict = {"space_id": space_id, "chat_id": chat_id}
+        if messages:
+            payload["messages"] = messages
+        if title:
+            payload["title"] = title
+        return self.http.request("PUT", "/api/featured-chat", json=payload)
+
+    def clear(self, space_id: str) -> dict:
+        """remove the featured chat from a space."""
+        return self.http.request(
+            "DELETE", "/api/featured-chat", params={"space_id": space_id}
+        )
+
+    def clone(self, space_id: str) -> str:
+        """clone the featured chat for the current user. returns the new session_id."""
+        resp = self.http.request(
+            "POST", "/api/featured-chat/clone", json={"space_id": space_id}
+        )
+        if not isinstance(resp, dict) or "chat_session_id" not in resp:
+            raise MantisError(f"featured chat clone failed: {resp}")
+        return resp["chat_session_id"]
+
+
+class AliasesResource(_BaseResource):
+    """human-friendly URL aliases for spaces (/space/<alias> resolves to the space).
+
+    lets a job maintain a STABLE url (e.g. /space/m4m) that always points at the same space.
+    set() is owner-only and (on a backend with the idempotency fix) safe to re-call on the
+    same space; resolve_or_create_space() encodes the idempotent recipe so re-runs don't make
+    duplicate spaces."""
+
+    def resolve(self, alias: str) -> str | None:
+        """alias → space_id, or None if no accessible space has it."""
+        try:
+            resp = self.http.request("GET", "/api/getSpaceFromAlias", params={"alias": alias})
+        except MantisError:
+            return None  # backend returns 400 when not found; treat as "no such alias"
+        return resp.get("project_id") if isinstance(resp, dict) else None
+
+    def get(self, space_id: str) -> str | None:
+        """space_id → its alias, or None."""
+        try:
+            resp = self.http.request("GET", "/api/getAliasFromSpaceId", params={"project_id": space_id})
+        except MantisError:
+            return None
+        return resp.get("alias") if isinstance(resp, dict) else None
+
+    def set(self, space_id: str, alias: str) -> Any:
+        """point an alias at a space (owner-only)."""
+        return self.http.request(
+            "POST", "/api/setSpaceAlias", json={"space_id": space_id, "alias": alias}
+        )
+
+    def resolve_or_create_space(self, alias: str) -> tuple[str, bool]:
+        """return (space_id, created) for `alias`, minting a DETERMINISTIC space id if absent.
+
+        the guardrail for idempotency: if the alias already resolves, reuse that space (and do
+        NOT re-set the alias — older backends 400 on that). otherwise derive a stable space id
+        from the alias (uuid5) so concurrent first-runs converge on one space instead of racing
+        to create two. the caller then creates maps into space_id and, only when created=True,
+        calls set(space_id, alias) once."""
+        existing = self.resolve(alias)
+        if existing:
+            return existing, False
+        space_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"mantis-sdk-alias:{alias}"))
+        return space_id, True
 
 
 class AnnotationsResource(_BaseResource):
