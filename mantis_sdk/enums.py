@@ -58,6 +58,7 @@ class ReducerModels(StrEnum):
 
 class Provider(StrEnum):
     # agent-execution runtime providers, sent to the backend as `model_id` per run.
-    # opencode is universally available; claude_code requires UserCapabilities.bedrock_enabled.
+    # opencode is universally available; claude_code and hermes are capability-gated.
     OpenCode = "opencode"
     ClaudeCode = "claude_code"
+    Hermes = "hermes"
