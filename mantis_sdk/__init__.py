@@ -23,7 +23,7 @@ from .notebook import Cell, Notebook
 from .render_args import RenderArgs
 from .resources import SpaceHandle
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 
 def __getattr__(name: str):

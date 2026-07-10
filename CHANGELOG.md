@@ -3,6 +3,14 @@
 This project follows [Semantic Versioning](https://semver.org/). Breaking changes bump the minor
 version while pre-1.0.
 
+## [0.13.0] — 2026-07-10
+
+### Added
+- `Provider.Hermes` (`"hermes"`) — the third agent-execution runtime provider, alongside
+  `OpenCode` and `ClaudeCode`. Capability-gated like `claude_code`, so `_assert_available`
+  raises `ProviderUnavailableError` when the user isn't cleared for it. Keeps the SDK's
+  `Provider` enum in lockstep with the backend's `UserCapabilities.PROVIDER_CHOICES`.
+
 ## [0.12.0] — 2026-06-14
 
 ### Added
