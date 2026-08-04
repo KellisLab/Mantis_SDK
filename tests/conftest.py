@@ -41,6 +41,7 @@ def transport() -> RecordingTransport:
 def client(transport: RecordingTransport) -> MantisClient:
     config = ConfigurationManager()
     config.internal_user_id = "11111111-1111-1111-1111-111111111111"
+    config.internal_service_token = "test-internal-service-token"
     c = MantisClient("/api/proxy/", cookie=None, config=config)
     # swap in the recording transport so nothing touches the network.
     c.http.transport = transport
