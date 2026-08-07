@@ -18,7 +18,7 @@ class HttpClient:
 
     auth resolution (either or both may apply):
       - cookie: a browser session cookie string (canonical for user auth).
-      - config.internal_user_id + internal_service_token: backend-to-backend auth.
+      - config.internal_user_id + internal_service_secret: backend-to-backend auth.
     """
 
     def __init__(
@@ -56,12 +56,12 @@ class HttpClient:
         if self.cookie:
             headers["cookie"] = self.cookie
         if self.config.internal_user_id:
-            if not self.config.internal_service_token:
+            if not self.config.internal_service_secret:
                 raise ConfigurationError(
-                    "internal_service_token is required when internal_user_id is set"
+                    "internal_service_secret is required when internal_user_id is set"
                 )
             headers["X-Internal-Service"] = "true"
-            headers["X-Internal-Service-Token"] = self.config.internal_service_token
+            headers["X-Internal-Secret"] = self.config.internal_service_secret
             headers["X-Internal-User-Id"] = str(self.config.internal_user_id)
         return headers
 
