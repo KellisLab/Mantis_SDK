@@ -30,7 +30,7 @@ def _redact(headers: dict[str, str]) -> dict[str, str]:
     for key in list(redacted):
         if key.lower() in {
             "cookie",
-            "x-internal-service-token",
+            "x-internal-secret",
             "x-internal-user-id",
             "x-notebook-auth",
             "x-csrftoken",

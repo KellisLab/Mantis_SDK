@@ -24,11 +24,11 @@ Two ways to authenticate:
   header from any authenticated request, and pass it as `cookie`. Required keys include
   `next-auth.session-token` and `sessionid`.
 - **Internal-service (backend-to-backend).** Set `config.internal_user_id` and
-  `config.internal_service_token` (or `MANTIS_INTERNAL_USER_ID` and `MANTIS_INTERNAL_SERVICE_TOKEN`);
+  `config.internal_service_secret` (or `MANTIS_INTERNAL_USER_ID` and `MANTIS_INTERNAL_SERVICE_SECRET`);
   the SDK then sends the authenticated internal-service headers instead of a cookie.
 
 `MantisClient.from_env()` reads `MANTIS_HOST`, `MANTIS_BACKEND_HOST`, `MANTIS_COOKIE`,
-`MANTIS_BASE_URL`, `MANTIS_INTERNAL_USER_ID`, and `MANTIS_INTERNAL_SERVICE_TOKEN`.
+`MANTIS_BASE_URL`, `MANTIS_INTERNAL_USER_ID`, and `MANTIS_INTERNAL_SERVICE_SECRET`.
 
 ## Quick start
 

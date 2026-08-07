@@ -55,17 +55,17 @@ def test_connection_error_wrapped():
 def test_redact_masks_auth_headers():
     redacted = _redact({
         "cookie": "secret",
-        "X-Internal-Service-Token": "service-secret",
+        "X-Internal-Secret": "service-secret",
         "X-Internal-User-Id": "u",
         "Accept": "json",
     })
     assert redacted["cookie"] == "<redacted>"
-    assert redacted["X-Internal-Service-Token"] == "<redacted>"
+    assert redacted["X-Internal-Secret"] == "<redacted>"
     assert redacted["X-Internal-User-Id"] == "<redacted>"
     assert redacted["Accept"] == "json"
 
 
-def test_debug_log_redacts_internal_service_token(caplog):
+def test_debug_log_redacts_internal_service_secret(caplog):
     transport = Transport()
     transport.session.request = MagicMock(return_value=_response(200, {"ok": True}))
     caplog.set_level(logging.DEBUG, logger="mantis_sdk")
@@ -73,7 +73,7 @@ def test_debug_log_redacts_internal_service_token(caplog):
     transport.request(
         "GET",
         "http://x/y",
-        headers={"X-Internal-Service-Token": "service-secret"},
+        headers={"X-Internal-Secret": "service-secret"},
     )
 
     assert "service-secret" not in caplog.text

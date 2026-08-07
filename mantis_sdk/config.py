@@ -27,7 +27,7 @@ class ConfigurationManager:
 
         # internal-service auth requires both identity and a provisioned credential.
         self.internal_user_id: str | None = os.getenv("MANTIS_INTERNAL_USER_ID")
-        self.internal_service_token: str | None = os.getenv("MANTIS_INTERNAL_SERVICE_TOKEN")
+        self.internal_service_secret: str | None = os.getenv("MANTIS_INTERNAL_SERVICE_SECRET")
 
         # the agent runtime (client.agents) keys identity + capability gating on email, not
         # user_id. set this (or MANTIS_USER_EMAIL) so agents.session() can default user_email.
