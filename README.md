@@ -23,11 +23,12 @@ Two ways to authenticate:
 - **Session cookie (user context).** Log into Mantis, open devtools → Network, copy the `cookie`
   header from any authenticated request, and pass it as `cookie`. Required keys include
   `next-auth.session-token` and `sessionid`.
-- **Internal-service (backend-to-backend).** Set `config.internal_user_id` (or `MANTIS_INTERNAL_USER_ID`);
-  the SDK then sends `X-Internal-Service: true` + `X-Internal-User-Id` instead of a cookie.
+- **Internal-service (backend-to-backend).** Set `config.internal_user_id` and
+  `config.internal_service_secret` (or `MANTIS_INTERNAL_USER_ID` and `MANTIS_INTERNAL_SERVICE_SECRET`);
+  the SDK then sends the authenticated internal-service headers instead of a cookie.
 
 `MantisClient.from_env()` reads `MANTIS_HOST`, `MANTIS_BACKEND_HOST`, `MANTIS_COOKIE`,
-`MANTIS_BASE_URL`, and `MANTIS_INTERNAL_USER_ID`.
+`MANTIS_BASE_URL`, `MANTIS_INTERNAL_USER_ID`, and `MANTIS_INTERNAL_SERVICE_SECRET`.
 
 ## Quick start
 

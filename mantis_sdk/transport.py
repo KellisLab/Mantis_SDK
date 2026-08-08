@@ -28,7 +28,13 @@ def _redact(headers: dict[str, str]) -> dict[str, str]:
     """copy headers with auth-bearing values masked, for safe logging."""
     redacted = dict(headers)
     for key in list(redacted):
-        if key.lower() in {"cookie", "x-internal-user-id", "x-notebook-auth", "x-csrftoken"}:
+        if key.lower() in {
+            "cookie",
+            "x-internal-secret",
+            "x-internal-user-id",
+            "x-notebook-auth",
+            "x-csrftoken",
+        }:
             redacted[key] = "<redacted>"
     return redacted
 

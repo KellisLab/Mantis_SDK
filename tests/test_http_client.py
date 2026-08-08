@@ -1,12 +1,15 @@
 """url building, trailing-slash handling, and auth header construction."""
-from mantis_sdk import ConfigurationManager
+import pytest
+
+from mantis_sdk import ConfigurationError, ConfigurationManager
 from mantis_sdk._http import HttpClient
 
 
-def _http(base, cookie=None, internal=None):
+def _http(base, cookie=None, internal=None, secret=None):
     cfg = ConfigurationManager()
     cfg.host = "http://localhost:3000"
     cfg.internal_user_id = internal
+    cfg.internal_service_secret = secret
     return HttpClient(base, cookie, cfg)
 
 
@@ -31,7 +34,23 @@ def test_cookie_auth_header():
 
 
 def test_internal_service_auth_header():
-    h = _http("/api/proxy/", internal="user-123")
+    h = _http("/api/proxy/", internal="user-123", secret="service-secret")
     headers = h.auth_headers()
     assert headers["X-Internal-Service"] == "true"
+    assert headers["X-Internal-Secret"] == "service-secret"
     assert headers["X-Internal-User-Id"] == "user-123"
+
+
+def test_internal_service_auth_requires_secret():
+    h = _http("/api/proxy/", internal="user-123")
+
+    with pytest.raises(ConfigurationError, match="internal_service_secret is required"):
+        h.auth_headers()
+
+
+def test_internal_service_secret_loads_from_environment(monkeypatch):
+    monkeypatch.setenv("MANTIS_INTERNAL_SERVICE_SECRET", "service-secret")
+
+    config = ConfigurationManager()
+
+    assert config.internal_service_secret == "service-secret"
