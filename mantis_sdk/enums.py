@@ -62,3 +62,4 @@ class Provider(StrEnum):
     OpenCode = "opencode"
     ClaudeCode = "claude_code"
     Hermes = "hermes"
+    Cartographer = "cartographer"

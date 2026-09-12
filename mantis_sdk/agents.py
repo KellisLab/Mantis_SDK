@@ -20,7 +20,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 from urllib.parse import quote
 
 from .enums import Provider
@@ -37,65 +37,125 @@ _TERMINAL = frozenset({"chat_complete", "chat_fail"})
 _TEXT_TYPES = frozenset({"chat_messages"})
 
 
+class _EventFields(TypedDict):
+    provider: str | None
+    raw: dict
+    item_id: str | None
+    payload: dict
+    metadata: dict
+
+
+def _text(value: Any) -> str:
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
 @dataclass
 class AgentEvent:
-    """a single normalized event from an agent run.
+    """A normalized event; ``raw`` preserves the complete server envelope.
 
-    type is one of: text, tool_use, tool_result, thinking, init, typing, complete, fail, other.
-    raw holds the original wire dict for anything not surfaced as a field."""
+    Native plan, compaction, subagent and context events retain structured
+    payloads. Tool progress is provisional; only ``tool_result`` is final.
+    With ``from_wire(..., text_updates=True)``, ``text_update`` replaces the
+    current text for ``item_id`` and ``text`` commits that segment. Historical
+    partial frames remain ``typing`` by default to avoid double-counting text.
+    """
 
     type: str
     text: str = ""
     tool_name: str | None = None
     provider: str | None = None
     raw: dict = field(default_factory=dict)
+    item_id: str | None = None
+    payload: dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
 
     @classmethod
-    def from_wire(cls, data: dict) -> AgentEvent:
-        wire = data.get("type", "")
-        provider = data.get("provider")
+    def from_wire(cls, data: dict, *, text_updates: bool = False) -> AgentEvent:
+        wire = data.get("event") or data.get("type", "")
+        payload, metadata = data.get("payload"), data.get("metadata")
+        common: _EventFields = {
+            "provider": data.get("provider") or data.get("runtime"),
+            "raw": data,
+            "item_id": data.get("id") or data.get("tool_call_id") or data.get("tool_use_id"),
+            "payload": payload if isinstance(payload, dict) else {},
+            "metadata": metadata if isinstance(metadata, dict) else {},
+        }
         # the agent runtime streams assistant text as untyped {sender:"ai", message, partial}
         # frames (no "type" key). surface only the FINAL frame (partial=false) as text so we
         # don't double-count the streaming snapshots.
         if not wire and data.get("sender") == "ai" and "message" in data:
             if data.get("partial"):
-                return cls("typing", provider=provider, raw=data)
-            return cls("text", text=data.get("message", "") or "", provider=provider, raw=data)
+                if text_updates:
+                    return cls("text_update", text=_text(data["message"]), **common)
+                return cls("typing", **common)
+            return cls("text", text=data.get("message", "") or "", **common)
         if wire in _TEXT_TYPES:
-            return cls("text", text=data.get("content", "") or "", provider=provider, raw=data)
+            return cls("text", text=data.get("content", "") or "", **common)
+        if wire == "tool_call":
+            return cls("tool_update" if data.get("metadata_update") else "tool_use",
+                       tool_name=data.get("tool_name") or data.get("name"), **common)
+        if wire == "tool_output":
+            return cls("tool_result", text=_text(data.get("output", data.get("content"))),
+                       tool_name=data.get("tool_name"), **common)
+        if wire == "tool_progress":
+            return cls("tool_progress", text=_text(data.get("output_delta")),
+                       tool_name=data.get("tool_name"), **common)
+        if wire in {"plan_update", "context_compaction", "subagent_update", "context_tokens"}:
+            if wire == "context_tokens":
+                common["payload"] = {**common["payload"], **{
+                    key: data[key] for key in ("current_tokens", "max_tokens") if key in data
+                }}
+            return cls(wire, **common)
         if wire == "tool_use":
             return cls("tool_use", tool_name=data.get("tool_name") or data.get("name"),
-                       provider=provider, raw=data)
+                       **common)
         if wire == "tool_result":
             return cls("tool_result", text=str(data.get("content", "") or ""),
-                       tool_name=data.get("tool_name"), provider=provider, raw=data)
+                       tool_name=data.get("tool_name"), **common)
         if wire == "thinking":
-            return cls("thinking", text=data.get("content", "") or "", provider=provider, raw=data)
-        if wire == "agent_session_init":
-            return cls("init", provider=provider, raw=data)
-        if wire in ("typing_indicator", "heartbeat"):
+            return cls("thinking", text=data.get("content", "") or "", **common)
+        if wire in {"agent_session_init", "runtime_state"}:
+            return cls("init", **common)
+        if wire in ("typing_indicator", "heartbeat") or (not wire and "typing" in data):
             # heartbeats keep the socket alive during a long claude_code/opencode run.
-            return cls("typing", provider=provider, raw=data)
+            return cls("typing", **common)
+        if wire == "run.accepted":
+            return cls("accepted", **common)
+        if wire == "run.rejected":
+            return cls("rejected", text=_text(data.get("message") or data.get("reason")), **common)
         if wire == "chat_complete":
-            return cls("complete", text=data.get("content", "") or "", provider=provider, raw=data)
+            return cls("complete", text=data.get("content", "") or "", **common)
         if wire == "chat_fail":
-            return cls("fail", text=data.get("content", "") or "", provider=provider, raw=data)
-        return cls("other", provider=provider, raw=data)
+            return cls("fail", text=_text(data.get("content") or data.get("message") or data.get("reason")),
+                       **common)
+        if wire == "run_cancelled":
+            return cls("cancelled", **common)
+        return cls("other", **common)
 
     @property
     def is_terminal(self) -> bool:
-        return self.type in ("complete", "fail")
+        return self.type in {"complete", "fail", "cancelled", "rejected"}
 
 
 @dataclass
 class AgentResult:
-    """the assembled outcome of a run: full assistant text + the events that produced it."""
+    """The assembled text and events, with optional delivery-aware outcome fields.
+
+    Legacy sessions populate ``failed`` and ``error``. Delivery-aware callers
+    can additionally supply confirmed terminal flags and stable run identities.
+    """
 
     text: str
     provider: str
     events: list[AgentEvent]
     failed: bool = False
     error: str | None = None
+    completed: bool = False
+    cancelled: bool = False
+    message_id: str | None = None
+    runtime_run_id: str | None = None
 
 
 class AgentSession:
