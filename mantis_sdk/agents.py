@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -35,6 +36,22 @@ logger = logging.getLogger("mantis_sdk")
 _TERMINAL = frozenset({"chat_complete", "chat_fail"})
 # wire event types the sdk understands; anything else is passed through as type="other".
 _TEXT_TYPES = frozenset({"chat_messages"})
+_CONTEXT_SNAPSHOT_ENDPOINT = "/api/orchestration/composer/context-snapshots"
+
+
+def _context_uuid(value: Any, name: str) -> str:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ConfigurationError(f"{name} must be a UUID for context preparation") from exc
+
+
+def _context_ids(values: list[str] | None, name: str) -> list[str]:
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        raise ConfigurationError(f"{name} must be a list of UUIDs")
+    return [_context_uuid(value, name) for value in values]
 
 
 class _EventFields(TypedDict):
@@ -262,6 +279,64 @@ class AgentSession:
             await asyncio.sleep(2)
             await self._ws.close()
             self._ws = None
+
+    def prepare_context(self, *, active_map_id: str | None = None,
+                        bag_ids: list[str] | None = None, cluster_ids: list[str] | None = None,
+                        point_ids: list[str] | None = None, space_ids: list[str] | None = None,
+                        files: list[dict] | None = None, source_snapshot_ids: list[str] | None = None,
+                        open_notebook_path: str | None = None) -> dict:
+        """Freeze selected sources through the context snapshot REST API.
+
+        Supply a stable UUID ``chat_id`` when creating the session, or prepare
+        context after a run has supplied ``server_chat_id``. No socket is opened
+        and no turn is sent. Existing ``ask`` behavior is unchanged.
+
+        With no membership filters, the scoped Space is included by default.
+        ``space_ids=[]`` explicitly omits whole-Space sources. Point, collection
+        and cluster selections require an active map and a bound Space thread.
+        Server authorization determines access to every source.
+        """
+        scope = {"chat_id": _context_uuid(self.server_chat_id or self.chat_id, "chat_id")}
+        if self.space_id:
+            scope["space_id"] = _context_uuid(self.space_id, "space_id")
+        if self.space_state_id:
+            if not self.space_id:
+                raise ConfigurationError("space_state_id requires its matching space_id")
+            scope["space_state_id"] = _context_uuid(self.space_state_id, "space_state_id")
+
+        bags = _context_ids(bag_ids, "bag_ids")
+        clusters = _context_ids(cluster_ids, "cluster_ids")
+        points = _context_ids(point_ids, "point_ids")
+        selected = bool(bags or clusters or points)
+        if selected and not active_map_id:
+            raise ConfigurationError("bag_ids, cluster_ids and point_ids require active_map_id")
+        body: dict[str, Any] = {"version": 1, "scope": scope}
+        body["space_ids"] = (_context_ids(space_ids, "space_ids") if space_ids is not None
+                             else [scope["space_id"]] if self.space_id and not selected else [])
+        if active_map_id is not None:
+            if not self.space_state_id:
+                raise ConfigurationError("active_map_id requires a bound space_state_id")
+            body["selections"] = [{"map_id": _context_uuid(active_map_id, "active_map_id"),
+                                   "bag_ids": bags, "cluster_ids": clusters, "point_ids": points}]
+        if files is not None:
+            if not isinstance(files, list) or any(not isinstance(spec, dict) for spec in files):
+                raise ConfigurationError("files must be a list of attachment objects")
+            body["files"] = files
+        if source_snapshot_ids is not None:
+            body["source_snapshot_ids"] = _context_ids(source_snapshot_ids, "source_snapshot_ids")
+        if open_notebook_path is not None:
+            if not isinstance(open_notebook_path, str):
+                raise ConfigurationError("open_notebook_path must be a string")
+            body["open_notebook_path"] = open_notebook_path
+
+        result = self._resource.http.request("POST", _CONTEXT_SNAPSHOT_ENDPOINT, json=body)
+        if not isinstance(result, dict) or type(result.get("version")) is not int or result["version"] != 1:
+            raise AgentRunError("Context preparation returned an invalid version 1 snapshot")
+        try:
+            snapshot_id = _context_uuid(result.get("id"), "context_snapshot.id")
+        except ConfigurationError as exc:
+            raise AgentRunError("Context preparation returned an invalid snapshot UUID") from exc
+        return {**result, "id": snapshot_id}
 
     async def ask(self, message: str, *, active_map_id: str | None = None,
                   bag_ids: list[str] | None = None, cluster_ids: list[str] | None = None,
