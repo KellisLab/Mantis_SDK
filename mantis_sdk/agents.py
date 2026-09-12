@@ -28,6 +28,7 @@ from .enums import Provider
 from .exceptions import AgentRunError, ConfigurationError, ProviderUnavailableError
 
 if TYPE_CHECKING:
+    from .delivery import DeliverySession
     from .resources import MantisClientProtocol
 
 logger = logging.getLogger("mantis_sdk")
@@ -465,6 +466,25 @@ class AgentsResource:
             )
 
     # --- runs ---
+    def delivery_session(self, space_id: str | None = None, *, model_id: str,
+                         user_email: str | None = None, chat_id: str | None = None,
+                         timeout: float = 180.0, check_capability: bool = True,
+                         space_state_id: str | None = None, auto_space_state: bool = True,
+                         reasoning_effort: str = "high") -> DeliverySession:
+        """Create an explicit Cartographer session using frozen context and delivery v1.
+
+        Supply a model ID supported by the deployment. Legacy ``session`` and
+        ``run_sync`` continue to use their established defaults and protocol.
+        """
+        from .delivery import create_delivery_session
+
+        return create_delivery_session(
+            self, space_id=space_id, model_id=model_id, user_email=user_email,
+            chat_id=chat_id, timeout=timeout, check_capability=check_capability,
+            space_state_id=space_state_id, auto_space_state=auto_space_state,
+            reasoning_effort=reasoning_effort,
+        )
+
     def session(self, space_id: str | None = None, *,
                 provider: Provider | str = DEFAULT_PROVIDER,
                 user_email: str | None = None,

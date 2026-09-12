@@ -4,6 +4,7 @@ from __future__ import annotations
 from .agents import AgentEvent, AgentResult, AgentSession
 from .client import MantisClient
 from .config import ConfigurationManager
+from .delivery import DeliverySession
 from .enums import AIProvider, DataType, Provider, ReducerModels, SpacePrivacy
 from .exceptions import (
     AgentRunError,
@@ -45,6 +46,7 @@ __all__ = [
     "Cell",
     # agents
     "AgentSession",
+    "DeliverySession",
     "AgentEvent",
     "AgentResult",
     # enums
