@@ -25,10 +25,9 @@ class ConfigurationManager:
         # browser-side flag the sdk waits on before a space is considered ready.
         self.wait_for = os.getenv("MANTIS_WAIT_FOR", "isLoaded")
 
-        # internal-service auth: set these to authenticate backend-to-backend without
-        # a session cookie. when internal_user_id is set the transport sends
-        # X-Internal-Service: true and X-Internal-User-Id headers.
+        # internal-service auth requires both identity and a provisioned credential.
         self.internal_user_id: str | None = os.getenv("MANTIS_INTERNAL_USER_ID")
+        self.internal_service_secret: str | None = os.getenv("MANTIS_INTERNAL_SERVICE_SECRET")
 
         # the agent runtime (client.agents) keys identity + capability gating on email, not
         # user_id. set this (or MANTIS_USER_EMAIL) so agents.session() can default user_email.
