@@ -60,8 +60,9 @@ class MantisClient:
 
         if cookie is None and not self.config.internal_user_id:
             raise ConfigurationError(
-                "no auth provided: pass a session cookie, or set internal_user_id on the config "
-                "(MANTIS_INTERNAL_USER_ID) for backend-to-backend auth."
+                "no auth provided: pass a session cookie, or set internal_user_id "
+                "(MANTIS_INTERNAL_USER_ID) and internal_service_secret "
+                "(MANTIS_INTERNAL_SERVICE_SECRET) for backend-to-backend auth."
             )
 
         self.http = HttpClient(base_url=base_url, cookie=cookie, config=self.config)
@@ -81,7 +82,7 @@ class MantisClient:
     @classmethod
     def from_env(cls, base_url: str | None = None) -> MantisClient:
         """build a client from MANTIS_* environment variables.
-        uses MANTIS_COOKIE for auth (or MANTIS_INTERNAL_USER_ID via the config)."""
+        uses MANTIS_COOKIE or the internal user id and service secret via the config."""
         import os
 
         config = ConfigurationManager()

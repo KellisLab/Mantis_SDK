@@ -25,7 +25,12 @@ Two ways to authenticate:
   `next-auth.session-token` and `sessionid`.
 - **Internal-service (backend-to-backend).** Set `config.internal_user_id` and
   `config.internal_service_secret` (or `MANTIS_INTERNAL_USER_ID` and `MANTIS_INTERNAL_SERVICE_SECRET`);
-  the SDK then sends the authenticated internal-service headers instead of a cookie.
+  the SDK then sends authenticated internal-service headers. A cookie is not required.
+
+If both methods are configured, the SDK sends both sets of headers and the backend uses the
+authenticated internal-service identity. If a cookie is present but the internal user ID has no
+service secret, the SDK sends only the cookie; without a cookie, incomplete internal configuration
+fails before making a request.
 
 `MantisClient.from_env()` reads `MANTIS_HOST`, `MANTIS_BACKEND_HOST`, `MANTIS_COOKIE`,
 `MANTIS_BASE_URL`, `MANTIS_INTERNAL_USER_ID`, and `MANTIS_INTERNAL_SERVICE_SECRET`.

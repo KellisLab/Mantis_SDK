@@ -1,7 +1,7 @@
 """url building, trailing-slash handling, and auth header construction."""
 import pytest
 
-from mantis_sdk import ConfigurationError, ConfigurationManager
+from mantis_sdk import ConfigurationError, ConfigurationManager, MantisClient
 from mantis_sdk._http import HttpClient
 
 
@@ -46,6 +46,33 @@ def test_internal_service_auth_requires_secret():
 
     with pytest.raises(ConfigurationError, match="internal_service_secret is required"):
         h.auth_headers()
+
+
+def test_cookie_auth_ignores_incomplete_ambient_internal_auth():
+    h = _http("/api/proxy/", cookie="sessionid=abc", internal="user-123")
+
+    assert h.auth_headers() == {"cookie": "sessionid=abc"}
+
+
+def test_complete_internal_auth_takes_priority_when_cookie_is_also_present():
+    h = _http(
+        "/api/proxy/", cookie="sessionid=abc", internal="user-123", secret="service-secret"
+    )
+
+    assert h.auth_headers() == {
+        "cookie": "sessionid=abc",
+        "X-Internal-Service": "true",
+        "X-Internal-Secret": "service-secret",
+        "X-Internal-User-Id": "user-123",
+    }
+
+
+def test_missing_auth_error_describes_full_internal_contract():
+    config = ConfigurationManager()
+    config.internal_user_id = None
+
+    with pytest.raises(ConfigurationError, match="MANTIS_INTERNAL_SERVICE_SECRET"):
+        MantisClient("/api/proxy/", config=config)
 
 
 def test_internal_service_secret_loads_from_environment(monkeypatch):
