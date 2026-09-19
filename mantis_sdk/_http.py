@@ -57,12 +57,15 @@ class HttpClient:
             headers["cookie"] = self.cookie
         if self.config.internal_user_id:
             if not self.config.internal_service_secret:
-                raise ConfigurationError(
-                    "internal_service_secret is required when internal_user_id is set"
-                )
-            headers["X-Internal-Service"] = "true"
-            headers["X-Internal-Secret"] = self.config.internal_service_secret
-            headers["X-Internal-User-Id"] = str(self.config.internal_user_id)
+                # preserve cookie auth when only the ambient internal id is set.
+                if not self.cookie:
+                    raise ConfigurationError(
+                        "internal_service_secret is required when internal_user_id is set"
+                    )
+            else:
+                headers["X-Internal-Service"] = "true"
+                headers["X-Internal-Secret"] = self.config.internal_service_secret
+                headers["X-Internal-User-Id"] = str(self.config.internal_user_id)
         return headers
 
     def request(
