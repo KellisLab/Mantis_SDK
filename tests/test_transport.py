@@ -1,4 +1,5 @@
 """transport maps http status codes to typed exceptions and retries idempotent calls."""
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -51,8 +52,29 @@ def test_connection_error_wrapped():
         t.request("GET", "http://x/y")
 
 
-def test_redact_masks_cookie():
-    redacted = _redact({"cookie": "secret", "X-Internal-User-Id": "u", "Accept": "json"})
+def test_redact_masks_auth_headers():
+    redacted = _redact({
+        "cookie": "secret",
+        "X-Internal-Secret": "service-secret",
+        "X-Internal-User-Id": "u",
+        "Accept": "json",
+    })
     assert redacted["cookie"] == "<redacted>"
+    assert redacted["X-Internal-Secret"] == "<redacted>"
     assert redacted["X-Internal-User-Id"] == "<redacted>"
     assert redacted["Accept"] == "json"
+
+
+def test_debug_log_redacts_internal_service_secret(caplog):
+    transport = Transport()
+    transport.session.request = MagicMock(return_value=_response(200, {"ok": True}))
+    caplog.set_level(logging.DEBUG, logger="mantis_sdk")
+
+    transport.request(
+        "GET",
+        "http://x/y",
+        headers={"X-Internal-Secret": "service-secret"},
+    )
+
+    assert "service-secret" not in caplog.text
+    assert "<redacted>" in caplog.text
