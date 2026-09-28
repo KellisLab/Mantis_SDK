@@ -26,6 +26,24 @@ ProgressCallback = Callable[[int, str | None, Any], None]
 VariationCallback = Callable[[dict], str]
 
 
+def _visibility_from_privacy_level(
+    privacy_level: SpacePrivacy | str | None,
+    visibility: str | None,
+) -> str:
+    """Resolve the backend `visibility` field ('private' | 'unlisted').
+
+    The backend hard-rejects the legacy `is_public` field (and 'public' as a
+    visibility — public is set only by backend code). Map the legacy
+    SpacePrivacy enum onto the two user-settable values: PUBLIC requests a
+    link-shareable space ('unlisted'), PRIVATE/SHARED stay 'private'.
+    An explicit `visibility=` argument wins over `privacy_level=`.
+    """
+    if visibility is not None:
+        return str(visibility)
+    level = str(privacy_level) if privacy_level is not None else str(SpacePrivacy.PRIVATE)
+    return "unlisted" if level == str(SpacePrivacy.PUBLIC) else "private"
+
+
 class SpaceHandle(dict):
     """rich handle for a created/opened space.
 
@@ -130,6 +148,7 @@ class SpacesResource(_BaseResource):
         custom_models: list[str | None] | None = None,
         reducer: ReducerModels | str = ReducerModels.UMAP,
         privacy_level: SpacePrivacy | str = SpacePrivacy.PRIVATE,
+        visibility: str | None = None,
         ai_provider: AIProvider | str = AIProvider.OpenAI,
         chat_model: str = "gpt-4o-mini",
         embedding_model: str = "text-embedding-3-small",
@@ -153,7 +172,12 @@ class SpacesResource(_BaseResource):
         than creating a new one) — this is how you keep one space with a fixed set of maps.
 
         map_name names the map; without it the backend falls back to "Untitled Map". defaults
-        to space_name so a single-map space gets a sensible label out of the box."""
+        to space_name so a single-map space gets a sensible label out of the box.
+
+        privacy_level/visibility control the space's access tier. the backend no longer
+        accepts the legacy is_public field: it wants `visibility` in {'private','unlisted'}
+        ('public' is set only by backend code). SpacePrivacy.PUBLIC maps to 'unlisted'
+        (link-shareable); pass visibility='unlisted'/'private' explicitly to override."""
         buffer, columns, file_extension = self._load_data(data)
 
         data_types_sanitized = self._sanitize_data_types(columns, data_types)
@@ -175,7 +199,7 @@ class SpacesResource(_BaseResource):
             "space_id": space_id,
             "space_name": space_name,
             "map_name": map_name or space_name,  # backend defaults to "Untitled Map" if omitted
-            "is_public": str(str(privacy_level) == str(SpacePrivacy.PUBLIC)).lower(),
+            "visibility": _visibility_from_privacy_level(privacy_level, visibility),
             "red_model": str(reducer),
             "custom_models": json.dumps(custom_models),
             "data_types": json.dumps(data_types_sanitized),
@@ -212,6 +236,7 @@ class SpacesResource(_BaseResource):
         space_name: str | None = None,
         *,
         privacy_level: SpacePrivacy | str = SpacePrivacy.PRIVATE,
+        visibility: str | None = None,
         on_progress: ProgressCallback | None = None,
         show_progress: bool = False,
         wait: bool = True,
@@ -223,7 +248,7 @@ class SpacesResource(_BaseResource):
             "space_id": space_id,
             "space_name": space_name or repo_url.rstrip("/").split("/")[-1],
             "repo_url": repo_url,
-            "is_public": str(str(privacy_level) == str(SpacePrivacy.PUBLIC)).lower(),
+            "visibility": _visibility_from_privacy_level(privacy_level, visibility),
             **extra,
         }
         resp = self.http.request("POST", "/synthesis/github", json=payload)
