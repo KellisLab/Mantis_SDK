@@ -87,3 +87,52 @@ def test_create_space_no_wait_skips_polling(client, transport):
     )
     assert handle.map_id == "m1"
     assert len(transport.calls) == 1  # only the POST, no progress polls.
+
+
+# --- visibility contract (backend rejects legacy is_public since #1958) ---
+
+def _posted_form(transport):
+    kwargs = transport.calls[0]["kwargs"]
+    return kwargs.get("data") or kwargs.get("json")
+
+
+def test_create_space_sends_visibility_not_is_public(client, transport):
+    transport.queue = [{"map_id": "m1", "space_id": "s1"}]
+    client.spaces.create("t", _df(), {"A": DataType.Title, "B": DataType.Semantic}, wait=False)
+    form = _posted_form(transport)
+    assert form is not None
+    assert "is_public" not in form, "legacy is_public field is hard-rejected by the backend"
+    assert form.get("visibility") == "private"  # SpacePrivacy.PRIVATE default
+
+
+def test_create_space_public_privacy_maps_to_unlisted(client, transport):
+    # 'public' is not user-settable on the backend; PUBLIC maps to 'unlisted'
+    # (link-shareable) so the request is accepted instead of 400-ing.
+    transport.queue = [{"map_id": "m1", "space_id": "s1"}]
+    client.spaces.create(
+        "t", _df(), {"A": DataType.Title, "B": DataType.Semantic},
+        privacy_level="public", wait=False,
+    )
+    form = _posted_form(transport)
+    assert form.get("visibility") == "unlisted"
+
+
+def test_create_space_explicit_visibility_wins(client, transport):
+    transport.queue = [{"map_id": "m1", "space_id": "s1"}]
+    client.spaces.create(
+        "t", _df(), {"A": DataType.Title, "B": DataType.Semantic},
+        privacy_level="public", visibility="private", wait=False,
+    )
+    form = _posted_form(transport)
+    assert form.get("visibility") == "private"
+
+
+def test_from_github_sends_visibility_not_is_public(client, transport):
+    transport.queue = [
+        {"map_id": "m1", "space_id": "s1"},
+        {"progress": 100, "completed": True, "error": None},
+    ]
+    client.spaces.from_github("https://github.com/o/r")
+    payload = _posted_form(transport)
+    assert "is_public" not in payload
+    assert payload.get("visibility") == "private"
