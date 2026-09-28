@@ -136,3 +136,30 @@ def test_from_github_sends_visibility_not_is_public(client, transport):
     payload = _posted_form(transport)
     assert "is_public" not in payload
     assert payload.get("visibility") == "private"
+
+
+# --- pipeline config dicts (backend CreateMapSerializer requires all four since #1780) ---
+
+def test_create_space_sends_all_four_configs(client, transport):
+    import json as _json
+
+    transport.queue = [{"map_id": "m1", "space_id": "s1"}]
+    client.spaces.create("t", _df(), {"A": DataType.Title, "B": DataType.Semantic}, wait=False)
+    form = _posted_form(transport)
+    for key in ("embedding_config", "reduction_config", "clustering_config", "labeling_config"):
+        assert key in form, f"{key} missing — backend 400s with 'This configuration object is required.'"
+        parsed = _json.loads(form[key])
+        assert isinstance(parsed, dict), f"{key} must be a JSON object"
+
+
+def test_create_space_config_overrides_accepted(client, transport):
+    import json as _json
+
+    transport.queue = [{"map_id": "m1", "space_id": "s1"}]
+    custom = {"reduction_method": "UMAP", "start_dimension": 128, "end_dimension": 2}
+    client.spaces.create(
+        "t", _df(), {"A": DataType.Title, "B": DataType.Semantic},
+        reduction_config=custom, wait=False,
+    )
+    form = _posted_form(transport)
+    assert _json.loads(form["reduction_config"])["start_dimension"] == 128

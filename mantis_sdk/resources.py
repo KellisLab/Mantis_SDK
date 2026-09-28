@@ -160,6 +160,10 @@ class SpacesResource(_BaseResource):
         space_id: str | None = None,
         map_id: str | None = None,
         map_name: str | None = None,
+        embedding_config: dict | None = None,
+        reduction_config: dict | None = None,
+        clustering_config: dict | None = None,
+        labeling_config: dict | None = None,
     ) -> SpaceHandle:
         """create a space from a DataFrame or csv path, then (by default) poll to completion.
 
@@ -195,6 +199,29 @@ class SpacesResource(_BaseResource):
         space_id = space_id or str(uuid.uuid4())
         file_key = f"{space_name}-{space_id}.{file_extension}"
 
+        # pipeline config dicts. the backend's CreateMapSerializer (since the
+        # Synthesis abstraction change, MantisAPI #1780) hard-requires all four
+        # as dicts in the request — a create without them 400s with
+        # "This configuration object is required." these are the minimal
+        # self-defaulting shapes the backend accepts (verified against prod).
+        embedding_config = embedding_config or {
+            "method": "llm",
+            "service": "vllm-embeddings",
+            "model": "auto",
+            "batch_size": 100,
+        }
+        reduction_config = reduction_config or {
+            "reduction_method": str(reducer).upper(),
+            "start_dimension": None,
+            "end_dimension": 2,
+        }
+        clustering_config = clustering_config or {"clustering_method": "k_means"}
+        labeling_config = labeling_config or {
+            "config_type": "metadata",
+            "service": "vllm-instruct",
+            "model": "auto",
+        }
+
         form_data = {
             "space_id": space_id,
             "space_name": space_name,
@@ -207,6 +234,10 @@ class SpacesResource(_BaseResource):
             "file_key": file_key,
             "chat_model": chat_model,
             "embedding_model": embedding_model,
+            "embedding_config": json.dumps(embedding_config),
+            "reduction_config": json.dumps(reduction_config),
+            "clustering_config": json.dumps(clustering_config),
+            "labeling_config": json.dumps(labeling_config),
         }
         if map_id:  # stable map id → backend refreshes that map in place instead of minting one
             form_data["map_id"] = map_id
