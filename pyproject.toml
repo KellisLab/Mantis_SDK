@@ -8,7 +8,7 @@ version = "0.13.0"
 description = "Pythonic SDK for interacting with the Mantis frontend + backend"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Luca V" }]
 keywords = ["mantis", "embeddings", "visualization", "sdk"]
 
