@@ -20,6 +20,6 @@ def test_datatype_all_matches_backend_serializer():
     expected = {
         "title", "semantic", "numeric", "categoric", "date", "links",
         "custom_model", "image", "geospatial", "coordinate1", "coordinate2",
-        "connection", "vector", "delete",
+        "connection", "vector", "timeseries", "delete",
     }
     assert {str(d) for d in DataType} == expected

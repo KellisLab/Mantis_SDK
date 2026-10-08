@@ -36,6 +36,7 @@ class DataType(StrEnum):
     Coordinate2 = "coordinate2"
     Connection = "connection"
     Vector = "vector"
+    Timeseries = "timeseries"
     Delete = "delete"
 
 
