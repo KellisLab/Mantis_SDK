@@ -21,6 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+data = ["numpy>=1.26", "pyarrow>=14"]
 browser = ["playwright>=1.49"]
 progress = ["tqdm>=4.67"]
 dev = [
