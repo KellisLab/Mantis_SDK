@@ -1,244 +1,211 @@
 # Mantis SDK
 
-Pythonic SDK for the [Mantis](https://github.com/KellisLab) visualization platform. It talks to the
-Mantis backend over REST and drives the Mantis frontend through Playwright browser automation.
+Work with Mantis from Python: read maps, run notebook cells, use workflows, and send results back to the app.
+
+The shared-data helpers let these tools use **the same selected records and the same result versions**. You can analyze a selection without exporting a CSV and manually matching it to a later result.
+
+[Walkthrough](#walkthrough-selected-points-to-a-reusable-result) · [Installation](#installation) · [API guide](docs/usage.md) · [Examples](examples)
+
+## What this makes possible
+
+Imagine selecting 500 records on a map. You calculate a summary in a notebook, then ask Composer to explain it or pass it to a workflow. Each tool can use the exact selection or result you published, with its source history attached.
+
+```mermaid
+flowchart LR
+    S["Selected map points"] --> C["Capture exact selection"]
+    C --> P["Analyze in Python or a notebook"]
+    P --> T["Publish result table"]
+    T --> A["Composer: inspect and explain"]
+    T --> W["Workflow: next analysis"]
+```
+
+| Step | What carries over |
+| --- | --- |
+| Capture a selection | Exact point IDs, chosen columns and source data version |
+| Load it into Python | A pandas DataFrame containing those rows |
+| Publish a result | A reusable table linked to the inputs that produced it |
+| Use it elsewhere | A reference to the same stored result |
+| Change the original data | A stale status, so changed inputs are visible |
+
+**Availability:** these SDK additions are in [PR #25](https://github.com/KellisLab/Mantis_SDK/pull/25). The matching backend is [deployed and verified](https://github.com/KellisLab/MantisAPI/actions/runs/42417404823); the SDK additions have not been published to PyPI. Use the source branch below while the PR is under review. Existing account access rules still apply.
 
 ## Installation
 
+Requires Python 3.10 or newer.
+
 ```bash
-python -m venv venv && source venv/bin/activate   # Windows: .\venv\Scripts\activate
+git clone https://github.com/KellisLab/Mantis_SDK.git
+cd Mantis_SDK
 
-pip install -e .                 # core (REST only)
-pip install -e ".[browser]"      # + Playwright browser automation
-pip install -e ".[dev]"          # + test/lint/type tooling
+# While PR #25 is pending, use its branch for the shared-data helpers:
+git switch codex/shared-object-handoff
 
-# only if you installed the browser extra:
-python -m playwright install chromium
+python -m venv .venv
+source .venv/bin/activate         # Windows: .venv\Scripts\activate
+pip install -e .
 ```
 
-## Authentication
+| If you need… | Install |
+| --- | --- |
+| REST requests and pandas tables | `pip install -e .` |
+| NumPy matrices and Parquet item tables | `pip install -e ".[data]"` |
+| Browser control and screenshots | `pip install -e ".[browser]"`, then `python -m playwright install chromium` |
+| Development tools | `pip install -e ".[dev]"` |
 
-Two ways to authenticate:
+## Connect to Mantis
 
-- **Session cookie (user context).** Log into Mantis, open devtools → Network, copy the `cookie`
-  header from any authenticated request, and pass it as `cookie`. Required keys include
-  `next-auth.session-token` and `sessionid`.
-- **Internal-service (backend-to-backend).** Set `config.internal_user_id` and
-  `config.internal_service_secret` (or `MANTIS_INTERNAL_USER_ID` and `MANTIS_INTERNAL_SERVICE_SECRET`);
-  the SDK then sends authenticated internal-service headers. A cookie is not required.
+Keep connection settings and credentials in your private environment. `MantisClient.from_env()` reads them.
 
-If both methods are configured, the SDK sends both sets of headers and the backend uses the
-authenticated internal-service identity. If a cookie is present but the internal user ID has no
-service secret, the SDK sends only the cookie; without a cookie, incomplete internal configuration
-fails before making a request.
-
-`MantisClient.from_env()` reads `MANTIS_HOST`, `MANTIS_BACKEND_HOST`, `MANTIS_COOKIE`,
-`MANTIS_BASE_URL`, `MANTIS_INTERNAL_USER_ID`, and `MANTIS_INTERNAL_SERVICE_SECRET`.
-
-## Quick start
+| Variable | Purpose |
+| --- | --- |
+| `MANTIS_HOST` | Origin receiving REST requests: your frontend proxy or backend |
+| `MANTIS_BASE_URL` | `/api/proxy/` for the frontend proxy; `/` for direct backend requests |
+| `MANTIS_COOKIE` | Your authenticated session cookies |
+| `MANTIS_BACKEND_HOST` | Backend origin, also used for agent WebSockets |
 
 ```python
-import pandas as pd
-from mantis_sdk import MantisClient, ConfigurationManager, DataType, ReducerModels, SpacePrivacy
+from mantis_sdk import MantisClient
 
-config = ConfigurationManager().update({
-    "host": "https://mantisdev.csail.mit.edu",
-    "domain": "mantisdev.csail.mit.edu",
-    "backend_host": "https://mantiscluster.csail.mit.edu",
-})
-
-client = MantisClient("/api/proxy/", cookie=COOKIE, config=config)
-
-df = pd.DataFrame({
-    "Symbol": ["AAPL", "GOOGL", "MSFT"] + [f"CO{i}" for i in range(100)],
-    "Market Cap": [2000, 1500, 1300] + [i * 10 for i in range(100)],
-    "Description": ["Apple", "Alphabet", "Microsoft"] + [f"Company {i}" for i in range(100)],
-})
-
-space = client.spaces.create(
-    "Stock data", df,
-    {"Symbol": DataType.Title, "Market Cap": DataType.Numeric, "Description": DataType.Semantic},
-    reducer=ReducerModels.UMAP, privacy_level=SpacePrivacy.PRIVATE,
-    show_progress=True,
-)
-print(space.space_id, space.map_id)
-print(space.get_annotations())
+client = MantisClient.from_env()
 ```
 
-> Local backend must run via Docker for space creation to work (`cd docker && docker compose up -d --build`).
+**For `client.objects`:** the SDK requires valid Django `sessionid` and `csrftoken` cookies and sends the matching CSRF header. Internal-service credentials alone do not authorize these helpers. Keep cookies out of source control and shared notebook cells.
 
-## Resource-oriented API
+The [authentication guide](docs/usage.md#authentication) covers other SDK endpoints and internal-service connections.
 
-| Group | Highlights |
-|-------|-----------|
-| `client.spaces` | `create(...)`, `from_github(repo_url)`, `get_all()`, `aopen(space_id)` |
-| `client.maps` | `list(space_id)`, `list_idea_ids(map_id)`, `get_ideas(ids)` |
-| `client.notebooks` | `resolve_map_to_project`, `create`, `from_map` |
-| `client.agents` | `session(...)`, `run_sync(...)`, `providers(email)`, `set_provider(email, provider)` |
-| `client.annotations` | `list(map_id)`, `create(map_id, payload)` |
-| `client.search` | `cluster_questions(...)` *(backend route currently disabled)* |
+## Walkthrough: selected points to a reusable result
 
-Legacy flat methods (`create_space`, `get_spaces`, `open_space`, `get_annotations`,
-`getClusterQuestions`) still work but emit `DeprecationWarning`.
+Use `space_id`, `map_id`, and `selected_ids` from a workspace you can access. This example assumes it has `topic` and `score` columns; use your actual field names.
 
-`create_space` now returns a `SpaceHandle` (a dict subclass, so `["space_id"]` still works) with
-`.list_maps()`, `.get_annotations()`, `.points` (lazy paginated iterator), `.aopen()`, `.delete()`.
+### 1. Capture the selection and load its rows
 
-## Notebooks
+A **cohort** is a saved, exact selection of records.
 
 ```python
-project_id = client.notebooks.resolve_map_to_project(map_id)
-nb = client.notebooks.create(project_id, name="Analysis", user_id=USER_ID)
-
-cell = nb.add_cell("import numpy as np; print(np.arange(5))")
-cell.execute()
-print(cell.text)
-
-plot = nb.add_cell("import matplotlib.pyplot as plt; plt.plot([1,2,3]); plt.show()")
-plot.execute()
-open("plot.png", "wb").write(plot.image_png_bytes())
-
-nb.checkpoint("after-plot")          # snapshot kernel state
-nb.list_checkpoints()
-```
-
-## Agents (provider-scoped)
-
-Run a coding agent scoped to a space, streaming its output. Two runtime providers:
-`Provider.OpenCode` (the **default**, available to everyone) and `Provider.ClaudeCode`
-(opt-in — the user must have `bedrock_enabled` capabilities; the SDK checks this up front and
-raises `ProviderUnavailableError` rather than silently downgrading).
-
-The agent runtime identifies the user by **email** (set `config.user_email` or pass `user_email=`),
-not user_id.
-
-```python
-from mantis_sdk import Provider
-
-async with client.agents.session(space_id, provider=Provider.OpenCode, user_email=email) as run:
-    async for ev in run.ask("Summarize the outlier cluster", active_map_id=map_id):
-        if ev.type == "text":      print(ev.text, end="")
-        elif ev.type == "tool_use": print("→", ev.tool_name)
-    result = run.result()          # full text + events; result.provider asserts the runtime used
-
-# sync convenience
-result = client.agents.run_sync("What patterns are here?", space_id, provider=Provider.OpenCode,
-                                user_email=email)
-
-# capability management
-client.agents.providers(email)                     # {providers, default, current}
-client.agents.set_provider(email, Provider.ClaudeCode)
-```
-
-Event types: `text`, `tool_use`, `tool_result`, `thinking`, `init`, `typing`, `complete`, `fail`.
-
-## Browser automation
-
-```python
-async with await client.spaces.aopen(space_id) as space:
-    dims = await space.get_available_dimensions()
-    hits = await space.general_search("inflation", search_type="semantic", limit=10)
-    await space.add_bag("my bag", [p["id"] for p in hits])
-    png = await space.render_plot("x", "y")
-    await space.command("any_executor_name", arg1, arg2)   # generic escape hatch
-```
-
-## Data types
-
-`DataType.Title`, `Semantic`, `Numeric`, `Categoric`, `Date`, `Links`, `CustomModel`, `Image`,
-`Geospatial`, `Coordinate1`, `Coordinate2`, `Connection`, `Vector`, `Delete`. Values mirror the
-backend serializer keys exactly (e.g. `CustomModel == "custom_model"`).
-
-## Errors
-
-All errors derive from `MantisError`: `AuthenticationError`, `NotFoundError`, `RateLimitError`,
-`APIStatusError(status_code, body)`, `APIConnectionError`, `SpaceCreationError`,
-`FeatureUnavailableError`, `ExecutionError`.
-
-See [`examples/`](./examples) for runnable scripts.
-
-### Reuse versioned originals across tools
-
-The Semantic Object Runtime carries original URI/version/hash pins between
-Knowledge, Composer, notebook workflows and the SDK. These endpoints currently
-require a **Django session cookie containing `sessionid` and `csrftoken`**;
-internal-service credentials alone do not authorize them. The SDK sends the
-matching CSRF header. Keep session cookies in environment/configuration, never
-in shared notebooks.
-
-```python
-obj = client.objects.resolve(space_id, map_id, object_uri)
-object_input = client.objects.workflow_input(
-    space_id, map_id, [obj], message="Analyze this exact original"
-)
-run = client.objects.run_workflow(workflow_definition, object_input)
-status = client.objects.execution(run["execution_id"])
-```
-
-`object_input` is also accepted by `executeWorkflow(workflow_id, object_input)`
-in a Mantis notebook. Construct it with `client.objects.workflow_input` without
-copying source content. The backend resolves originals at admission and
-again when the queued worker starts. Changed versions or revoked access require
-resolving and reviewing again; the SDK never silently substitutes newer content.
-Completed result reads retain the originating executor and source-access checks.
-
-This release supports the existing passage, claim and workflow-result-row kinds.
-The computational asset methods below also publish DataFrames, selections and Rep-SI matrices as
-shared computational assets.
-
-### Saved cohorts, tables and reusable analysis
-
-These APIs use the same URI/version/hash objects as Knowledge, Composer and
-notebooks. They retain the existing account rollout and require a valid Django
-session cookie with `sessionid` and `csrftoken`. Results remain private to you.
-
-```python
-# space_id, map_id and selected_ids come from your current authorized workspace.
 cohort = client.objects.capture_cohort(
-    space_id, map_id, point_ids=selected_ids, columns=["topic", "score"],
-    name="Reviewed sample", reviewed=True,
+    space_id, map_id,
+    point_ids=selected_ids,
+    columns=["topic", "score"],
+    name="Selected records",
+    reviewed=True,
 )
-counts = client.objects.run_operation(
-    space_id, map_id, cohort, "group_counts",
-    parameters={"field": "topic"}, reviewed=True,
-)
-df = client.objects.dataframe(space_id, map_id, counts)
-published = client.objects.publish_dataframe(
-    space_id, map_id, df, inputs=[counts], name="Notebook output", reviewed=True,
-)
-lineage = client.objects.lineage(space_id, map_id, published)
 
-workflow = client.objects.operation_workflow("group_counts", parameters={"field": "topic"})
-request = client.objects.workflow_input(space_id, map_id, [cohort])
+frame = client.objects.dataframe(space_id, map_id, cohort)
+```
+
+### 2. Calculate a result and publish it with its inputs
+
+```python
+summary = frame.groupby("topic", as_index=False)["score"].sum()
+
+result = client.objects.publish_dataframe(
+    space_id, map_id, summary,
+    inputs=[cohort],
+    name="Score totals by topic",
+    reviewed=True,
+)
+
+print(result["uri"], result["version"])
+```
+
+`inputs=[cohort]` records which selection produced the summary. Composer can inspect that published table; another SDK call or workflow can read the same version.
+
+### 3. Pass the result to a workflow
+
+```python
+workflow = client.objects.operation_workflow("row_count")
+request = client.objects.workflow_input(space_id, map_id, [result])
+
 run = client.objects.run_workflow(workflow, request)
 status = client.objects.execution(run["execution_id"])
 ```
 
-Available operations and their parameter schemas are returned by
-`client.objects.options(space_id, map_id)`. The initial catalog includes
-`group_counts`, `numeric_summary`, `filter_equals`, and `row_count`. The workflow
-helper uses the actual `object_operation` graph node; it is not a local simulation.
+Execution is asynchronous: read `execution(...)` again to check progress. Here, `row_count` counts the summary's topic rows. The backend checks access and input versions again when the worker starts.
 
-Changed source data marks dependent results stale. Resolve the latest receipt,
-review it, then call `client.objects.refresh(..., reviewed=True, cascade=True)`
-to reproduce registered upstream operations as new versions. Reads never refresh
-implicitly. `allow_stale=True` explicitly reads retained old bytes when original
-access is still valid. Caller-supplied notebook results must be recomputed by their
-author and republished; arbitrary Python is never replayed automatically.
+## How the shared reference works
 
-For retryable writes, generate one UUID and pass the same `request_id` on retries
-of the exact same body. A changed body under that UUID is rejected. There are
-explicit materialization limits (32 MB, 200,000 rows and 64 columns), and oversized
-requests fail without silent truncation.
+| Field | Plain meaning |
+| --- | --- |
+| `uri` | Which stored selection or result |
+| `version` | Which revision of it |
+| `content_hash` | A checksum identifying its contents |
+| Input references / lineage | Which exact inputs produced it |
 
-An accessible Rep-SI output can be linked with `import_artifact(...,
-build_artifact_id=..., reviewed=True)` or `representation_id=...`. `download`
-returns original bytes; `representation` returns the matrix, and
-`representation_items` returns its exact row/item order. Install
-`mantis_sdk[data]` for NumPy and Parquet support. Original Build authorization is
-rechecked on every read; a known digest is not an access token.
+Pass these references between tools instead of copying data into each request. The server resolves them and checks access. Results remain private to the authenticated author.
 
-Inside a Mantis notebook the built-in synchronous helpers are `readTable`,
-`publishTable`, `runObjectOperation`, `readArtifact`, `readRepresentation`, and
-`readRepresentationItems`. They use the notebook's existing signed credential
-instead of embedding a browser cookie in notebook code.
+```python
+history = client.objects.lineage(space_id, map_id, result)
+```
+
+### When the original data changes
+
+```mermaid
+flowchart LR
+    E["Source data edited"] --> S["Dependent result becomes stale"]
+    S --> R["Review current inputs"]
+    R --> N["Explicit refresh creates a new version"]
+```
+
+| Result type | How to update it |
+| --- | --- |
+| Registered operation, such as a group count | Resolve its latest reference, review it, then call `refresh(..., reviewed=True, cascade=True)` |
+| Table calculated by your Python code | Recompute it and publish again with current inputs; use `target=` to create a new version of the same table |
+
+Reading a result does not refresh it automatically. `allow_stale=True` explicitly allows retained older contents when source access is still valid. Arbitrary Python code is not replayed automatically.
+
+## Methods at a glance
+
+| Goal | `client.objects` methods |
+| --- | --- |
+| Save a selection | `capture_cohort` |
+| Inspect available fields and operations | `options` |
+| Read a table | `read_table`, `dataframe` |
+| Save calculated rows | `publish_table`, `publish_dataframe` |
+| Run a registered analysis | `run_operation` |
+| Trace or update a result | `lineage`, `resolve`, `refresh` |
+| Reuse a Rep-SI build output | `import_artifact`, `download` |
+| Read a Rep-SI matrix and its row order | `representation`, `representation_items` |
+| Submit and follow a workflow | `operation_workflow`, `workflow_input`, `run_workflow`, `execution` |
+
+### Registered analyses
+
+Call `client.objects.options(space_id, map_id)` for the available operations and their parameter schemas.
+
+| Operation | Use it for |
+| --- | --- |
+| `group_counts` | Count rows by a field, such as topic |
+| `numeric_summary` | Summarize a numeric field |
+| `filter_equals` | Keep rows matching a field value |
+| `row_count` | Count input rows |
+
+### Files and matrices
+
+Use `import_artifact(..., build_artifact_id=..., reviewed=True)` for an accessible Rep-SI build file, or `representation_id=...` for a matrix. `download` returns original bytes; `representation` loads the matrix; `representation_items` returns the corresponding rows in their stored order.
+
+Install the `data` extra for matrix and Parquet support. Build permissions are checked again on reads; knowing a checksum does not grant access.
+
+### Writes and limits
+
+| Behavior | What to expect |
+| --- | --- |
+| Review | Writes require `reviewed=True`; review the input scope before submitting |
+| Retry | Supply one UUID as `request_id` and reuse it with the exact same body; a changed body is rejected |
+| Materialization | 32 MB, 200,000 rows and 64 columns; oversized requests fail without silent truncation |
+| Changed or inaccessible inputs | Resolve and review again; workflows do not silently substitute newer data |
+
+## The rest of the SDK
+
+| Area | Entry point | Guide |
+| --- | --- | --- |
+| Spaces and maps | `client.spaces`, `client.maps` | [Resource API](docs/usage.md#resource-oriented-api) |
+| Notebook cells and plots | `client.notebooks` | [Notebooks](docs/usage.md#notebooks) |
+| Coding agents | `client.agents` | [Agents](docs/usage.md#agents-provider-scoped) |
+| Annotations and search | `client.annotations`, `client.search` | [Resource API](docs/usage.md#resource-oriented-api) |
+| Browser actions and screenshots | `client.spaces.aopen(...)` | [Browser automation](docs/usage.md#browser-automation) |
+| Exceptions | `MantisError` and its subclasses | [Errors](docs/usage.md#errors) |
+
+Existing passage, claim and workflow-result objects can also be resolved through `client.objects.resolve(...)` and passed to `workflow_input(...)`.
+
+Inside Mantis notebook cell tools, the synchronous helpers `readTable`, `publishTable`, `runObjectOperation`, `readArtifact`, `readRepresentation`, and `readRepresentationItems` use the notebook's signed credential. Browser cookies do not need to be embedded in notebook code.
+
+See the [full usage guide](docs/usage.md), [runnable examples](examples), and [changelog](CHANGELOG.md) for more.
