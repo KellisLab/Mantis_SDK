@@ -27,6 +27,55 @@ flowchart LR
 | Use it elsewhere | A reference to the same stored result |
 | Change the original data | A stale status, so changed inputs are visible |
 
+## What we implemented
+
+There are two parts: shared backend operations in **MantisAPI**, and Python helpers in **this SDK**. The backend work extends Mantis's existing object versions and Rep-SI artifact storage.
+
+| Part | What it does |
+| --- | --- |
+| Exact selections, called cohorts | Records which points and columns you chose, their source row identities, and hashes of their contents |
+| Shared tables | Stores calculated rows as a versioned result that another tool can read |
+| Artifact and matrix adapters | Makes accessible Rep-SI files and matrices usable through the same reference format, including matrix row order |
+| Common operation catalog | Gives tools the same definitions for counting, filtering and numeric summaries |
+| Input history | Links each published result to the exact input versions it used |
+| Staleness and explicit refresh | Detects changed inputs and creates a new result version when you choose to refresh |
+| Workflow admission | Checks the caller and inputs before queuing work, then checks again when a worker starts |
+| SDK helpers | Handles requests, CSRF headers, DataFrame conversion, binary downloads and workflow submission from Python |
+
+### What “unified” means
+
+Each tool agrees on a reference to a stored version: **object URI + version + content hash**. Python can load that version into a DataFrame; Composer can inspect its rows; a workflow can use it as an input.
+
+```mermaid
+flowchart TB
+    SDK["Python SDK"] --> Service["Shared backend asset operations"]
+    Notebook["Mantis notebook cell tools"] --> Service
+    Composer["Composer tools"] --> Service
+    Workflow["Workflow workers"] --> Service
+    Service --> Metadata[("Versions, selection membership and input links")]
+    Service --> Storage[("Existing Rep-SI artifact storage")]
+```
+
+The metadata records identity and history. The artifact store holds the data being read. Requests carry references, and the backend resolves them under the caller's permissions.
+
+### A concrete example
+
+1. **Select 500 records.** Capture their IDs and the `topic` and `score` columns as a cohort.
+2. **Calculate topic totals in Python.** Load those exact rows, group them by topic, and add the scores.
+3. **Publish the summary.** The new table records the cohort version it came from.
+4. **Reuse it.** Ask Composer to inspect the published reference, or give it to a workflow. Both can use the same stored summary.
+5. **Edit the source later.** The summary becomes stale. Recompute your Python calculation and publish a new version, or explicitly refresh a registered operation.
+
+This lets a result keep its meaning as it moves between tools: which records were included, which input versions it used, and whether those inputs have changed.
+
+### What this PR changes
+
+| Location | Responsibility |
+| --- | --- |
+| [Backend PR #5294](https://github.com/KellisLab/MantisAPI/pull/5294) | Storage bindings, selected-record membership, operations, dependencies, refresh, notebook/Composer adapters and workflow enforcement |
+| [This SDK PR #25](https://github.com/KellisLab/Mantis_SDK/pull/25) | Python methods for those operations, DataFrame/file/matrix handling, workflow helpers, tests and documentation |
+| Mantis app | Uses its existing Composer and notebook cell tools; this change does not require another panel |
+
 **Availability:** these SDK additions are in [PR #25](https://github.com/KellisLab/Mantis_SDK/pull/25). The matching backend is [deployed and verified](https://github.com/KellisLab/MantisAPI/actions/runs/42417404823); the SDK additions have not been published to PyPI. Use the source branch below while the PR is under review. Existing account access rules still apply.
 
 ## Installation

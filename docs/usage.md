@@ -194,3 +194,28 @@ Completed result reads retain the originating executor and source-access checks.
 This path supports existing passage, claim and workflow-result-row objects. For selections,
 DataFrames and Rep-SI matrices, see the [shared-data walkthrough](../README.md#walkthrough-selected-points-to-a-reusable-result).
 
+## Implementation map
+
+The SDK is a client for the shared backend. It prepares requests and converts responses; the backend owns storage, permissions, input validation and execution.
+
+| Code | Responsibility |
+| --- | --- |
+| [`mantis_sdk/client.py`](../mantis_sdk/client.py) | Exposes `client.objects` alongside the existing resource groups |
+| [`mantis_sdk/objects.py`](../mantis_sdk/objects.py) | Object references, CSRF checks, selection capture, DataFrame/file/matrix adapters, lineage, refresh and workflow helpers |
+| [`mantis_sdk/_http.py`](../mantis_sdk/_http.py) | URL construction and authenticated HTTP requests |
+| [`mantis_sdk/transport.py`](../mantis_sdk/transport.py) | HTTP transport, response handling and binary downloads |
+| [`tests/test_asset_objects.py`](../tests/test_asset_objects.py) | SDK computational-asset request and conversion coverage |
+| [`tests/test_objects.py`](../tests/test_objects.py) | Existing object references, authentication and workflow-input coverage |
+| [Backend `knowledge/assets.py`](https://github.com/KellisLab/MantisAPI/blob/main/src/knowledge/assets.py) | Shared computational-asset operations and permission checks |
+| [Backend runtime README](https://github.com/KellisLab/MantisAPI/blob/main/docs/shared-object-runtime/README.md) | Backend pipeline, implementation inventory and deployment receipts |
+
+### Where authority comes from
+
+| Caller | Authentication / authority |
+| --- | --- |
+| SDK object helpers | Django session cookies and matching CSRF header |
+| Composer tools | Authenticated server-side chat context |
+| Mantis notebook cell helpers | Existing signed notebook credential |
+| Queued workflow | Actor and input references saved at admission; access and input versions checked again by the worker |
+
+A request cannot grant itself authority by copying an object receipt, a hash, or an actor ID into its body. The shared reference identifies the data; server-side checks decide whether the caller can use it.
