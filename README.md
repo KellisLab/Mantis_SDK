@@ -156,3 +156,89 @@ All errors derive from `MantisError`: `AuthenticationError`, `NotFoundError`, `R
 `FeatureUnavailableError`, `ExecutionError`.
 
 See [`examples/`](./examples) for runnable scripts.
+
+### Reuse versioned originals across tools
+
+The Semantic Object Runtime carries original URI/version/hash pins between
+Knowledge, Composer, notebook workflows and the SDK. These endpoints currently
+require a **Django session cookie containing `sessionid` and `csrftoken`**;
+internal-service credentials alone do not authorize them. The SDK sends the
+matching CSRF header. Keep session cookies in environment/configuration, never
+in shared notebooks.
+
+```python
+obj = client.objects.resolve(space_id, map_id, object_uri)
+object_input = client.objects.workflow_input(
+    space_id, map_id, [obj], message="Analyze this exact original"
+)
+run = client.objects.run_workflow(workflow_definition, object_input)
+status = client.objects.execution(run["execution_id"])
+```
+
+`object_input` is also accepted by `executeWorkflow(workflow_id, object_input)`
+in a Mantis notebook. Construct it with `client.objects.workflow_input` without
+copying source content. The backend resolves originals at admission and
+again when the queued worker starts. Changed versions or revoked access require
+resolving and reviewing again; the SDK never silently substitutes newer content.
+Completed result reads retain the originating executor and source-access checks.
+
+This release supports the existing passage, claim and workflow-result-row kinds.
+The computational asset methods below also publish DataFrames, selections and Rep-SI matrices as
+shared computational assets.
+
+### Saved cohorts, tables and reusable analysis
+
+These APIs use the same URI/version/hash objects as Knowledge, Composer and
+notebooks. They retain the existing account rollout and require a valid Django
+session cookie with `sessionid` and `csrftoken`. Results remain private to you.
+
+```python
+# space_id, map_id and selected_ids come from your current authorized workspace.
+cohort = client.objects.capture_cohort(
+    space_id, map_id, point_ids=selected_ids, columns=["topic", "score"],
+    name="Reviewed sample", reviewed=True,
+)
+counts = client.objects.run_operation(
+    space_id, map_id, cohort, "group_counts",
+    parameters={"field": "topic"}, reviewed=True,
+)
+df = client.objects.dataframe(space_id, map_id, counts)
+published = client.objects.publish_dataframe(
+    space_id, map_id, df, inputs=[counts], name="Notebook output", reviewed=True,
+)
+lineage = client.objects.lineage(space_id, map_id, published)
+
+workflow = client.objects.operation_workflow("group_counts", parameters={"field": "topic"})
+request = client.objects.workflow_input(space_id, map_id, [cohort])
+run = client.objects.run_workflow(workflow, request)
+status = client.objects.execution(run["execution_id"])
+```
+
+Available operations and their parameter schemas are returned by
+`client.objects.options(space_id, map_id)`. The initial catalog includes
+`group_counts`, `numeric_summary`, `filter_equals`, and `row_count`. The workflow
+helper uses the actual `object_operation` graph node; it is not a local simulation.
+
+Changed source data marks dependent results stale. Resolve the latest receipt,
+review it, then call `client.objects.refresh(..., reviewed=True, cascade=True)`
+to reproduce registered upstream operations as new versions. Reads never refresh
+implicitly. `allow_stale=True` explicitly reads retained old bytes when original
+access is still valid. Caller-supplied notebook results must be recomputed by their
+author and republished; arbitrary Python is never replayed automatically.
+
+For retryable writes, generate one UUID and pass the same `request_id` on retries
+of the exact same body. A changed body under that UUID is rejected. There are
+explicit materialization limits (32 MB, 200,000 rows and 64 columns), and oversized
+requests fail without silent truncation.
+
+An accessible Rep-SI output can be linked with `import_artifact(...,
+build_artifact_id=..., reviewed=True)` or `representation_id=...`. `download`
+returns original bytes; `representation` returns the matrix, and
+`representation_items` returns its exact row/item order. Install
+`mantis_sdk[data]` for NumPy and Parquet support. Original Build authorization is
+rechecked on every read; a known digest is not an access token.
+
+Inside a Mantis notebook the built-in synchronous helpers are `readTable`,
+`publishTable`, `runObjectOperation`, `readArtifact`, `readRepresentation`, and
+`readRepresentationItems`. They use the notebook's existing signed credential
+instead of embedding a browser cookie in notebook code.

@@ -71,10 +71,13 @@ class Transport:
         *,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
+        response_type: str = "json",
         **kwargs: Any,
     ) -> Any:
         """perform a request and return parsed json (or text/None when not json).
         raises a typed MantisError subclass on failure."""
+        if response_type not in ("json", "bytes"):
+            raise ValueError("response_type must be json or bytes")
         headers = headers or {}
         timeout = timeout if timeout is not None else self.default_timeout
 
@@ -90,6 +93,8 @@ class Transport:
         elapsed = (time.monotonic() - started) * 1000
         logger.debug("← %s %s %d (%.0fms)", method, url, response.status_code, elapsed)
 
+        if response_type == "bytes" and 200 <= response.status_code < 300:
+            return response.content
         return self._handle(response, url)
 
     def _handle(self, response: requests.Response, url: str) -> Any:

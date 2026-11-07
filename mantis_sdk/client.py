@@ -20,6 +20,7 @@ from .config import ConfigurationManager
 from .enums import AIProvider, DataType, Provider, ReducerModels, SpacePrivacy
 from .exceptions import ConfigurationError
 from .notebook import NotebooksResource
+from .objects import ObjectsResource
 from .resources import (
     AliasesResource,
     AnnotationsResource,
@@ -77,6 +78,7 @@ class MantisClient:
         self.search = SearchResource(self)
         self.notebooks = NotebooksResource(self)
         self.agents = AgentsResource(self)
+        self.objects = ObjectsResource(self)
 
     # --- constructors ---
     @classmethod
